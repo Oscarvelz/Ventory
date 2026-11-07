@@ -1,0 +1,235 @@
+@import "tailwindcss";
+@source "./";
+@source "../spa";
+
+@theme {
+  --font-display: "Fraunces", Palatino, "Palatino Linotype", serif;
+  --font-sans: "Outfit", "Avenir Next", "Segoe UI", sans-serif;
+  --color-canvas: var(--v-canvas);
+  --color-panel: var(--v-panel);
+  --color-panel-2: var(--v-panel-2);
+  --color-ink: var(--v-ink);
+  --color-muted: var(--v-muted);
+  --color-faint: var(--v-faint);
+  --color-line: var(--v-line);
+  --color-accent: var(--v-accent);
+  --color-accent-ink: var(--v-accent-ink);
+  --color-accent-soft: var(--v-accent-soft);
+  --color-danger: var(--v-danger);
+  --color-danger-soft: var(--v-danger-soft);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+}
+
+:root,
+[data-theme="night"] {
+  color-scheme: dark;
+  --v-canvas: #121410;
+  --v-panel: #1a1c18;
+  --v-panel-2: #23261f;
+  --v-ink: #f3f0e8;
+  --v-muted: #a39e93;
+  --v-faint: #6f6b62;
+  --v-line: #34382f;
+  --v-accent: #6f947c;
+  --v-accent-ink: #10140f;
+  --v-accent-soft: #243028;
+  --v-danger: #d37a72;
+  --v-danger-soft: #3a2422;
+}
+
+[data-theme="day"] {
+  color-scheme: light;
+  --v-canvas: #f4f1ea;
+  --v-panel: #fbfaf6;
+  --v-panel-2: #ece7dc;
+  --v-ink: #1a1c17;
+  --v-muted: #5c5850;
+  --v-faint: #8a8478;
+  --v-line: #ddd6c8;
+  --v-accent: #3f6b50;
+  --v-accent-ink: #f6f3ec;
+  --v-accent-soft: #e4eee7;
+  --v-danger: #8d3a32;
+  --v-danger-soft: #f6e6e3;
+}
+
+[data-theme="dusk"] {
+  color-scheme: dark;
+  --v-canvas: #1c1612;
+  --v-panel: #271f19;
+  --v-panel-2: #322820;
+  --v-ink: #f6efe6;
+  --v-muted: #c4b2a2;
+  --v-faint: #8d7b6c;
+  --v-line: #46382e;
+  --v-accent: #c4846a;
+  --v-accent-ink: #1c1612;
+  --v-accent-soft: #3a2a24;
+  --v-danger: #e08a7c;
+  --v-danger-soft: #3d2420;
+}
+
+[data-theme="pine"] {
+  color-scheme: dark;
+  --v-canvas: #0e1a14;
+  --v-panel: #15241c;
+  --v-panel-2: #1d3026;
+  --v-ink: #e7f0e4;
+  --v-muted: #a9c0b0;
+  --v-faint: #6e8a78;
+  --v-line: #2c4638;
+  --v-accent: #8fb89a;
+  --v-accent-ink: #0e1a14;
+  --v-accent-soft: #1c3326;
+  --v-danger: #e09a90;
+  --v-danger-soft: #3a2422;
+}
+
+[data-theme="ink"] {
+  color-scheme: dark;
+  --v-canvas: #0c0e12;
+  --v-panel: #15181e;
+  --v-panel-2: #1e232c;
+  --v-ink: #e8eaee;
+  --v-muted: #a8b0bc;
+  --v-faint: #6e7784;
+  --v-line: #2c3340;
+  --v-accent: #8aa0b8;
+  --v-accent-ink: #0c0e12;
+  --v-accent-soft: #1c2633;
+  --v-danger: #d98984;
+  --v-danger-soft: #3a2426;
+}
+
+[data-theme="bone"] {
+  color-scheme: light;
+  --v-canvas: #f6f0e6;
+  --v-panel: #fffaf3;
+  --v-panel-2: #efe4d4;
+  --v-ink: #241c16;
+  --v-muted: #6d5c4e;
+  --v-faint: #9a8776;
+  --v-line: #e2d3c0;
+  --v-accent: #8a5a3b;
+  --v-accent-ink: #fffaf3;
+  --v-accent-soft: #f0e0d2;
+  --v-danger: #8d3a32;
+  --v-danger-soft: #f6e6e3;
+}
+
+[data-theme="harbor"] {
+  color-scheme: dark;
+  --v-canvas: #101820;
+  --v-panel: #17232c;
+  --v-panel-2: #20303b;
+  --v-ink: #e6eef1;
+  --v-muted: #a9bcc4;
+  --v-faint: #6e8690;
+  --v-line: #2c4450;
+  --v-accent: #6f9aa8;
+  --v-accent-ink: #101820;
+  --v-accent-soft: #1a333c;
+  --v-danger: #d98984;
+  --v-danger-soft: #3a2628;
+}
+
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  body {
+    background: var(--v-canvas);
+    color: var(--v-ink);
+    font-family: var(--font-sans);
+    margin: 0;
+  }
+}
+
+/* Picture frame. Ink is dark by day and light by night, so the edge stays visible on every theme. */
+.framed {
+  border: 1px solid color-mix(in srgb, var(--v-ink) 22%, var(--v-line));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--v-ink) 8%, transparent),
+    0 12px 28px -18px rgba(0, 0, 0, 0.32);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    transition: background-color 250ms cubic-bezier(0.22, 1, 0.36, 1), color 250ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .surface {
+    transition:
+      background-color 250ms cubic-bezier(0.22, 1, 0.36, 1),
+      color 250ms cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 250ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 250ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 250ms cubic-bezier(0.22, 1, 0.36, 1),
+      filter 250ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .press {
+    transition: scale 150ms ease-out, background-color 250ms cubic-bezier(0.22, 1, 0.36, 1), border-color 250ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .press:active:not(:disabled) {
+    scale: 0.96;
+  }
+  .sheet-in {
+    animation: sheet-in 250ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .veil-in {
+    animation: veil-in 250ms ease-out;
+  }
+  .piece {
+    animation: piece-in 400ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .advice-in {
+    animation: piece-in 400ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .piece:nth-child(2) { animation-delay: 40ms; }
+  .piece:nth-child(3) { animation-delay: 80ms; }
+  .piece:nth-child(4) { animation-delay: 120ms; }
+  .piece:nth-child(5) { animation-delay: 160ms; }
+}
+
+@keyframes sheet-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes veil-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes piece-in {
+  from { opacity: 0; transform: translateY(8px); filter: blur(3px); }
+  to { opacity: 1; transform: none; filter: blur(0); }
+}
+
+/* Top wordmark and bottom shelf. Transform hides them; it does not free the layout. */
+.shelf-top,
+.shelf-dock {
+  transition: none;
+  will-change: transform;
+}
+.shelf-top.is-away,
+.shelf-dock.is-away {
+  pointer-events: none;
+}
+
+.ventory-ripple {
+  position: absolute;
+  z-index: -1;
+  border-radius: 9999px;
+  pointer-events: none;
+  transform: scale(0.12);
+  opacity: 0.85;
+  animation: ventory-ripple 580ms cubic-bezier(0.16, 0.72, 0.24, 1) forwards;
+}
+@keyframes ventory-ripple {
+  55% { opacity: 0.45; }
+  to { transform: scale(1); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ventory-ripple { animation: none; }
+}

@@ -1,0 +1,46 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "types": [
+      "vite/client"
+    ],
+    "baseUrl": ".",
+    "paths": {
+      "@/lib/ventory/server": [
+        "./src/spa/api.ts"
+      ],
+      "@/lib/auth/gates": [
+        "./src/spa/gates.tsx"
+      ],
+      "@/*": [
+        "./src/*"
+      ]
+    }
+  },
+  "include": [
+    "spa",
+    "src/spa",
+    "src/components/ventory/house.tsx",
+    "src/components/ventory/Advisor.tsx",
+    "src/components/ventory/mark.tsx",
+    "src/components/ventory/ripple.tsx",
+    "src/components/ventory/use-scroll-bars.ts",
+    "src/lib/ventory/model.ts",
+    "src/lib/ventory/advisor.ts",
+    "src/lib/ventory/paste.ts",
+    "src/lib/ventory/sizes.ts",
+    "src/lib/ventory/themes.ts"
+  ]
+}

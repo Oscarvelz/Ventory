@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Ventory's Night theme canvas, the same as the PWA manifest (background_color #121410) and the icon. -->
+    <color name="ventory_night">#121410</color>
+    <color name="ic_bg">#121410</color>
+</resources>
