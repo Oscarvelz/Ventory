@@ -104,6 +104,9 @@ createRoot(document.getElementById("root")!).render(
 );
 
 if ("serviceWorker" in navigator && location.protocol === "https:") {
+  // Only an update replaces a page that already ran under a service worker; the very first install (clients.claim)
+  // must not reload, or it would cut a sign-in that is under way.
+  const hadWorker = !!navigator.serviceWorker.controller;
   window.addEventListener("load", () => {
     navigator.serviceWorker
       .register("./sw.js")
@@ -112,7 +115,7 @@ if ("serviceWorker" in navigator && location.protocol === "https:") {
           const nw = reg.installing;
           nw?.addEventListener("statechange", () => {
             // A new release is in: reload once, unless a sheet is open (then it waits for the next launch).
-            if (nw.state === "activated" && navigator.serviceWorker.controller && !document.querySelector(".veil-in")) location.reload();
+            if (nw.state === "activated" && hadWorker && !document.querySelector(".veil-in")) location.reload();
           });
         });
         setInterval(() => void reg.update(), 60 * 60 * 1000);
