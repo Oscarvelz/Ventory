@@ -160,6 +160,24 @@
   html {
     transition: background-color 250ms cubic-bezier(0.22, 1, 0.36, 1), color 250ms cubic-bezier(0.22, 1, 0.36, 1);
   }
+  /* Theme flip (1.0.3): while a flip is in flight, applyTheme parks this class
+     on <html> and EVERY element takes the same short color transition, so the
+     whole screen lands on one 180ms clock. Before, only .surface/.press/
+     .sum-chip carried their own 250ms fades while everything else snapped —
+     a patchwork the eye reads as a slow crawl. The class is removed right
+     after, so no interaction picks up a color lag in normal use. */
+  html.theming,
+  html.theming *,
+  html.theming *::before,
+  html.theming *::after {
+    transition:
+      background-color 180ms ease-out,
+      color 180ms ease-out,
+      border-color 180ms ease-out,
+      box-shadow 180ms ease-out,
+      fill 180ms ease-out,
+      stroke 180ms ease-out !important;
+  }
   .surface {
     transition:
       background-color 250ms cubic-bezier(0.22, 1, 0.36, 1),

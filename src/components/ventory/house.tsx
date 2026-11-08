@@ -21,8 +21,19 @@ type Lens = "hand" | "incoming" | "revenue" | "profit";
 type Layout = "card" | "medium" | "list" | "g2" | "g3" | "g4";
 type Face = "large" | "medium" | "list" | "grid";
 
+let themeFlipTimer: number | undefined;
+
 function applyTheme(theme: ThemeId) {
-  document.documentElement.dataset.theme = theme;
+  const root = document.documentElement;
+  // 1.0.3: a real change of theme flips on one clock — park .theming on <html>
+  // for the length of the shared 180ms transition (see styles.css), then take
+  // it off so nothing else inherits a color lag. Reduced motion never arms it.
+  if (root.dataset.theme && root.dataset.theme !== theme && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    root.classList.add("theming");
+    window.clearTimeout(themeFlipTimer);
+    themeFlipTimer = window.setTimeout(() => root.classList.remove("theming"), 240);
+  }
+  root.dataset.theme = theme;
   const color = THEMES.find((item) => item.id === theme)?.color;
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", color ?? "#121410");
   try {
@@ -875,7 +886,7 @@ export function House() {
             ))}
           </div>
           {desk === "stats" ? (
-            <div className="mt-4 space-y-2">
+            <div className="mt-4 space-y-3">
               <StatFold
                 title="Numbers"
                 line={brief.lines.numbers}
@@ -891,8 +902,8 @@ export function House() {
                 }}
               >
                 <div className="grid grid-cols-2 gap-2">
-                  <Exact label="Taken in" value={money(stats.revenue)} />
-                  <Exact label="Left after cost" value={money(stats.profit)} />
+                  <Figure label="Taken in" value={money(stats.revenue)} />
+                  <Figure label="Left after cost" value={money(stats.profit)} negative={stats.profit < 0} />
                   <Exact label="Cost of sales" value={money(stats.cost)} />
                   <Exact label="Margin" value={picture.margin == null ? "—" : `${picture.margin}%`} />
                   <Exact label="Average sale" value={pricedQty ? money(Math.round(stats.revenue / pricedQty)) : "—"} />
@@ -1303,8 +1314,6 @@ function barsOf(pieces: Piece[], key: (piece: Piece) => string) {
     .slice(0, 6);
 }
 
-const CHART = ["#5f8f72", "#5d86ad", "#b08a3e", "#c47b4a", "#8d6aad", "#4f7f8a"];
-
 function shortMoney(cents: number) {
   const amount = Math.abs(cents) / 100;
   if (amount >= 1000) return `$${(amount / 1000).toFixed(1)}k`;
@@ -1317,15 +1326,15 @@ function SalesBoard({ title, rows }: { title: string; rows: SaleLine[] }) {
       <p className="text-xs font-medium tracking-wide text-faint uppercase">{title}</p>
       {rows.length === 0 ? <p className="mt-3 text-sm text-muted">No sales to compare yet.</p> : (
         <>
-          <div className="mt-4 grid grid-cols-[1fr_2.75rem_4.75rem_4.75rem] gap-2 text-[10px] tracking-wide text-faint uppercase">
+          <div className="mt-4 grid grid-cols-[1fr_2.75rem_4.75rem_4.75rem] gap-2 border-b border-line pb-2 text-[10px] font-medium tracking-widest text-faint uppercase">
             <span>Product</span>
             <span className="text-right">Sold</span>
             <span className="text-right">In</span>
             <span className="text-right">Left</span>
           </div>
-          <ul className="mt-2 space-y-2.5">
+          <ul className="divide-y divide-line">
             {rows.map((row) => (
-              <li key={row.name} className="grid grid-cols-[1fr_2.75rem_4.75rem_4.75rem] items-baseline gap-2 text-sm">
+              <li key={row.name} className="grid grid-cols-[1fr_2.75rem_4.75rem_4.75rem] items-baseline gap-2 py-2.5 text-sm">
                 <span className="min-w-0">
                   <span className="block truncate">{row.name}</span>
                   {row.unpriced ? <span className="block text-[10px] text-muted">{row.unpriced} no price</span> : null}
@@ -1355,6 +1364,7 @@ function Ring({ title, parts }: { title: string; parts: { label: string; value: 
         <div className="mt-4 flex items-center gap-5">
           <div className="relative size-28 shrink-0">
             <svg viewBox="0 0 120 120" className="size-28 -rotate-90">
+              <circle cx="60" cy="60" r={radius} fill="none" stroke="var(--v-panel-2)" strokeWidth="14" />
               {shown.map((part) => {
                 const gap = shown.length > 1 ? 3 : 0;
                 const length = Math.max(1, (part.value / total) * turn - gap);
@@ -1386,7 +1396,7 @@ function Ring({ title, parts }: { title: string; parts: { label: string; value: 
                   <span className="size-2.5 shrink-0 rounded-full" style={{ background: part.color }} />
                   <span className="truncate">{part.label}</span>
                 </span>
-                <span className="tabular-nums text-muted">{Math.round((part.value / total) * 100)}%</span>
+                <span className="tabular-nums text-muted">{part.value} · {Math.round((part.value / total) * 100)}%</span>
               </li>
             ))}
           </ul>
@@ -1403,18 +1413,17 @@ function Columns({ title, rows, empty }: { title: string; rows: { label: string;
     <div className="rounded-3xl border border-line bg-panel p-5">
       <p className="text-xs font-medium tracking-wide text-faint uppercase">{title}</p>
       {shown.length === 0 ? <p className="mt-3 text-sm text-muted">{empty ?? "Nothing to measure yet."}</p> : (
-        <div className="mt-4 flex h-40 items-end gap-2">
-          {shown.map((row, index) => (
-            <div key={row.label} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end">
-              <span className="text-[10px] tabular-nums text-muted">{row.value}</span>
-              <div
-                className="mt-1 w-full max-w-8 rounded-t-lg"
-                style={{ height: `${Math.max(10, Math.round((row.value / peak) * 78))}%`, background: CHART[index % CHART.length] }}
-              />
-              <span className="mt-1.5 w-full truncate text-center text-[10px] text-muted">{row.label}</span>
-            </div>
+        <ul className="mt-4 space-y-3">
+          {shown.map((row) => (
+            <li key={row.label} className="flex items-center gap-3 text-sm">
+              <span className="w-28 min-w-0 shrink-0 truncate text-muted">{row.label}</span>
+              <span className="h-2 flex-1 overflow-hidden rounded-full bg-panel-2">
+                <span className="block h-full rounded-full bg-accent" style={{ width: `${Math.max(4, Math.round((row.value / peak) * 100))}%` }} />
+              </span>
+              <span className="w-8 shrink-0 text-right tabular-nums">{row.value}</span>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
     </div>
   );
@@ -1609,17 +1618,20 @@ function SettingFold({ title, open, onToggle, children }: { title: string; open:
 
 function StatFold({ title, open, pinned, onToggle, onPin, line, children }: { title: string; open: boolean; pinned: boolean; onToggle: () => void; onPin: () => void; line?: string; children: ReactNode }) {
   return (
-    <section className={`border border-line bg-panel ${open ? "rounded-3xl" : "rounded-full"}`}>
+    <section className="rounded-3xl border border-line bg-panel">
       <div className="flex items-center gap-1 pr-2">
         <button type="button" aria-expanded={open} onClick={onToggle} className="press flex min-w-0 flex-1 items-center gap-2 px-4 py-3 text-left">
-          <ChevronDown className={`size-4 shrink-0 text-muted transition-transform ${open ? "" : "-rotate-90"}`} strokeWidth={1.75} />
-          <span className="truncate font-display text-lg leading-tight">{title}</span>
+          <ChevronDown className={`size-4 shrink-0 self-center text-muted transition-transform ${open ? "" : "-rotate-90"}`} strokeWidth={1.75} />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-display text-lg leading-tight">{title}</span>
+            {!open && line ? <span className="mt-0.5 line-clamp-2 block text-xs leading-snug text-muted">{line}</span> : null}
+          </span>
         </button>
-        <button type="button" aria-label={pinned ? "Unpin" : "Pin open"} aria-pressed={pinned} onClick={onPin} className={`press grid size-8 place-items-center rounded-full ${pinned ? "text-accent" : "text-muted"}`}>
+        <button type="button" aria-label={pinned ? "Unpin" : "Pin open"} aria-pressed={pinned} onClick={onPin} className={`press grid size-8 shrink-0 place-items-center self-center rounded-full ${pinned ? "text-accent" : "text-muted"}`}>
           <Pin className="size-4" strokeWidth={1.75} fill={pinned ? "currentColor" : "none"} />
         </button>
       </div>
-      {open ? <div className="px-3 pb-3">{line ? <p className="mb-3 text-sm leading-relaxed text-muted">{line}</p> : null}{children}</div> : null}
+      {open ? <div className="px-4 pb-4">{line ? <p className="mb-3 text-sm leading-relaxed text-muted">{line}</p> : null}{children}</div> : null}
     </section>
   );
 }
@@ -1627,8 +1639,19 @@ function StatFold({ title, open, pinned, onToggle, onPin, line, children }: { ti
 function Exact({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-line bg-canvas px-3 py-3">
-      <p className="text-[10px] tracking-wide text-faint uppercase">{label}</p>
-      <p className="mt-2 font-display text-2xl leading-none tabular-nums">{value}</p>
+      <p className="text-[10px] font-medium tracking-widest text-faint uppercase">{label}</p>
+      <p className="mt-1.5 font-display text-2xl leading-none tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+/* Faro's figure treatment: the two numbers a fold turns on get the big serif,
+   so the eye lands on them before the supporting grid. Same values, new rank. */
+function Figure({ label, value, negative }: { label: string; value: string; negative?: boolean }) {
+  return (
+    <div className="col-span-2 rounded-2xl border border-line bg-canvas px-4 py-4">
+      <p className="text-[10px] font-medium tracking-widest text-faint uppercase">{label}</p>
+      <p className={`mt-2 font-display text-[2.6rem] leading-none tracking-tight tabular-nums ${negative ? "text-danger" : ""}`}>{value}</p>
     </div>
   );
 }
@@ -1690,9 +1713,9 @@ function Performance({ pieces, focus }: { pieces: Piece[]; focus?: "revenue" | "
                     <span className={`text-[10px] tabular-nums ${headline < 0 ? "text-danger" : "text-muted"}`}>{headline < 0 ? "−" : ""}{shortMoney(headline)}</span>
                     <div className="mt-1 flex h-24 w-full items-end justify-center gap-1">
                       {series.map(([label, amount]) => (
-                        <div key={label} className="flex h-full w-3 flex-col justify-end">
+                        <div key={label} className="flex h-full w-4 flex-col justify-end overflow-hidden rounded-md bg-panel-2">
                           <div
-                            className="w-full rounded-t-md"
+                            className="w-full rounded-md"
                             style={{
                               height: `${Math.max(amount > 0 ? 8 : 0, Math.round((Math.max(0, amount) / peak) * 100))}%`,
                               background: label === "Left" ? "#5f8f72" : "#b08a3e",

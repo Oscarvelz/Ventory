@@ -124,6 +124,10 @@ export function AdvisorView({
   const average = price?.title.match(/\$[0-9,]+\.\d{2}/)?.[0] ?? price?.body.match(/\$[0-9,]+\.\d{2}/)?.[0] ?? null;
   const notes = advice.cards.filter((card) => GLANCE.has(card.id));
   const counted = advice.cards.filter((card) => !GLANCE.has(card.id) && card.id !== "price" && card.id !== "aging");
+  // The engine's aging card (its ladder: the numbered cut for the oldest piece)
+  // was computed but never rendered — it gets its own article below (1.0.3).
+  const aging = advice.cards.find((card) => card.id === "aging");
+  const agingText = aging ? clip(aging.body) : null;
 
   const pieceTasks = onHand
     .filter((piece) => piece.id !== action?.id && missingOf(piece).length > 0)
@@ -162,10 +166,13 @@ export function AdvisorView({
 
   return (
     <div className="mt-4 space-y-5">
-      <section>
-        <p className="text-[11px] tracking-[0.16em] text-ink uppercase">Your shelf · {advice.stage}</p>
+      <section className="framed rounded-3xl bg-panel p-5">
+        <p className="text-[11px] tracking-[0.16em] text-faint uppercase">Your shelf · {advice.stage}</p>
         <h2 className="mt-2 font-display text-4xl leading-tight break-words">{leadOf(advice.headline)}</h2>
         <p className="mt-3 font-display text-3xl leading-none">{advice.ready} of {onHand.length} ready</p>
+        <div className="mt-3 h-2 overflow-hidden rounded-full bg-panel-2" role="presentation">
+          <div className="h-full rounded-full" style={{ width: `${onHand.length ? Math.round((advice.ready / onHand.length) * 100) : 0}%`, background: GREEN }} />
+        </div>
         <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
           {onHand.map((piece) => {
             const ready = missingOf(piece).length === 0;
@@ -177,10 +184,10 @@ export function AdvisorView({
             );
           })}
         </ul>
-        <div className="mt-3 flex flex-wrap gap-2 text-sm text-ink">
-          <span className="rounded-full bg-panel px-3 py-1.5">On hand {money(advice.onHandCents)}</span>
-          <span className="rounded-full bg-panel px-3 py-1.5">Coming {money(coming)}</span>
-          <span className="rounded-full bg-panel px-3 py-1.5 break-words">Oldest: {advice.oldestLabel}</span>
+        <div className="mt-4 flex flex-wrap gap-2 text-sm text-ink">
+          <span className="inline-flex items-center gap-2 rounded-full bg-panel-2 px-3 py-1.5"><span className="size-2 shrink-0 rounded-full" style={{ background: GREEN }} aria-hidden />On hand {money(advice.onHandCents)}</span>
+          <span className="inline-flex items-center gap-2 rounded-full bg-panel-2 px-3 py-1.5"><span className="size-2 shrink-0 rounded-full" style={{ background: "#5d86ad" }} aria-hidden />Coming {money(coming)}</span>
+          <span className="inline-flex items-center gap-2 rounded-full bg-panel-2 px-3 py-1.5 break-words"><span className="size-2 shrink-0 rounded-full" style={{ background: AMBER }} aria-hidden />Oldest: {advice.oldestLabel}</span>
         </div>
       </section>
 
@@ -253,7 +260,7 @@ export function AdvisorView({
       {donePieces.map((piece) => <DoneLine key={piece.id} text={`${piece.name} is ready to list`} />)}
 
       <section className="space-y-3">
-        <p className="text-[11px] tracking-[0.16em] text-ink uppercase">What makes the next sale easier</p>
+        <p className="text-[11px] tracking-[0.16em] text-faint uppercase">What makes the next sale easier</p>
 
         <article className="rounded-3xl border border-line bg-panel px-4 py-4">
           <h3 className="font-display text-2xl leading-tight">Which size is selling</h3>
@@ -307,8 +314,18 @@ export function AdvisorView({
           </ul>
         </article>
 
+        {aging && agingText ? (
+          <article className="rounded-3xl border border-line bg-panel px-4 py-4" style={{ borderLeftWidth: 4, borderLeftColor: aging.tone === "ready" ? GREEN : AMBER }}>
+            <p className="mb-1.5 text-[11px] font-medium tracking-[0.14em] text-faint uppercase">{aging.question} · {aging.horizon}</p>
+            <h3 className="font-display text-2xl leading-tight break-words">{aging.title}</h3>
+            <p className="mt-2 text-sm leading-relaxed text-ink">{more.includes(aging.id) && agingText.rest ? `${agingText.short} ${agingText.rest}` : agingText.short}</p>
+            {agingText.rest ? <button type="button" className="press mt-1 text-sm text-muted" onClick={() => setMore((current) => more.includes(aging.id) ? current.filter((id) => id !== aging.id) : [...current, aging.id])}>{more.includes(aging.id) ? "Less" : "More"}</button> : null}
+          </article>
+        ) : null}
+
         {notes.map((card) => (
           <article key={card.id} className="rounded-3xl border border-line bg-panel px-4 py-4" style={{ borderLeftWidth: 4, borderLeftColor: card.tone === "loss" ? RED : card.id === "ads" ? AMBER : GREEN }}>
+            <p className="mb-1.5 text-[11px] font-medium tracking-[0.14em] text-faint uppercase">{card.question} · {card.horizon}</p>
             <p className="text-sm leading-relaxed text-ink">{decisionLine(card)}</p>
           </article>
         ))}
@@ -325,8 +342,8 @@ export function AdvisorView({
               const text = clip(card.body);
               const open = more.includes(card.id);
               return (
-                <div key={card.id}>
-                  <h3 className="font-display text-xl leading-tight break-words">{card.title}</h3>
+                <div key={card.id} className="border-t border-line pt-3 first:border-t-0 first:pt-0">
+                  <h3 className="font-display text-xl leading-tight break-words">{card.title} <span className="align-middle font-sans text-[11px] font-medium tracking-[0.14em] whitespace-nowrap text-faint uppercase">{card.horizon}</span></h3>
                   <p className="mt-1 text-sm leading-relaxed text-ink">{open && text.rest ? `${text.short} ${text.rest}` : text.short}</p>
                   {text.rest ? <button type="button" className="press mt-1 text-sm text-ink" onClick={() => setMore((current) => open ? current.filter((id) => id !== card.id) : [...current, card.id])}>{open ? "Less" : "More"}</button> : null}
                 </div>
@@ -336,10 +353,12 @@ export function AdvisorView({
         ) : null}
       </section>
 
-      <p className="text-sm leading-relaxed text-ink">If a detail is not on a piece's card, I say what is missing instead of inventing it.</p>
-      <button type="button" className="press h-11 rounded-full border border-line px-4 text-sm text-ink" onClick={() => void navigator.clipboard?.writeText(advice.plan)}>
-        Copy plan
-      </button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="min-w-0 flex-1 text-sm leading-relaxed text-muted">If a detail is not on a piece's card, I say what is missing instead of inventing it.</p>
+        <button type="button" className="press h-11 shrink-0 rounded-full bg-accent-soft px-4 text-sm font-medium text-ink" onClick={() => void navigator.clipboard?.writeText(advice.plan)}>
+          Copy plan
+        </button>
+      </div>
     </div>
   );
 }
@@ -370,11 +389,11 @@ function ActionCard({
   const color = tone === "green" ? GREEN : tone === "red" ? RED : AMBER;
   const missing = piece ? missingOf(piece) : [];
   return (
-    <article className="rounded-3xl border border-line bg-panel p-4" style={{ borderLeftWidth: 6, borderLeftColor: color }}>
+    <article className="framed rounded-3xl border border-line p-4" style={{ borderLeftWidth: 6, borderLeftColor: color, background: `color-mix(in srgb, ${color} 9%, var(--v-panel))` }}>
       <div className="flex items-start gap-3">
         {piece ? <Thumb piece={piece} onPhoto={onPhoto} /> : null}
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] tracking-[0.14em] text-ink uppercase">{kicker}</p>
+          <p className="text-[11px] font-medium tracking-[0.14em] uppercase" style={{ color }}>{kicker}</p>
           <h3 className="mt-1 font-display text-3xl leading-tight break-words">{title}</h3>
           <p className="mt-2 text-sm leading-relaxed text-ink">{body}</p>
           {missing.length ? <p className="mt-2 text-sm text-ink">Missing {missing.join(", ")}.</p> : null}
