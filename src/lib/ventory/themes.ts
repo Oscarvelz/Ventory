@@ -10,6 +10,14 @@ export const THEMES = [
 
 export type ThemeId = (typeof THEMES)[number]["id"];
 
+// The two light ("day side") themes; every other theme is a night theme.
+// The header's quick day/night flip (Faro's logic) steps between these sides.
+export const LIGHT_THEMES: ThemeId[] = ["day", "bone"];
+
+export function isLightTheme(id: ThemeId): boolean {
+  return LIGHT_THEMES.includes(id);
+}
+
 export function asTheme(value: unknown): ThemeId {
   const id = String(value ?? "");
   return THEMES.some((theme) => theme.id === id) ? (id as ThemeId) : "night";

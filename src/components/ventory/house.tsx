@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Archive, BadgeCheck, Car, Check, ChevronDown, CircleAlert, CircleDollarSign, ClipboardPaste, Clock, Footprints, Funnel, Glasses, House as HomeIcon, ImagePlus, LayoutGrid, List, Megaphone, Package, Pin, Plus, RectangleHorizontal, Rows2, Shirt, ShoppingBag, SlidersHorizontal, Trash2, TrendingUp, Truck, Watch } from "lucide-react";
+import { Archive, BadgeCheck, Car, Check, ChevronDown, CircleAlert, CircleDollarSign, ClipboardPaste, Clock, Footprints, Funnel, Glasses, House as HomeIcon, ImagePlus, LayoutGrid, List, Megaphone, Moon, Package, Pin, Plus, RectangleHorizontal, Rows2, Shirt, ShoppingBag, SlidersHorizontal, Sun, Trash2, TrendingUp, Truck, Watch } from "lucide-react";
 import { UserButton } from "@/lib/auth/gates";
 import { daysHeld, dollarsToCents, emptyInput, money, PROBLEMS, STATUS_LABEL, STATUSES, todayISO, type Ad, type Piece, type PieceInput, type Status } from "@/lib/ventory/model";
 import { buildAdvice } from "@/lib/ventory/advisor";
@@ -7,7 +7,7 @@ import { AdvisorView, type AdviceFocus } from "@/components/ventory/Advisor";
 import { parseFloorNotes } from "@/lib/ventory/paste";
 import { convertToUs } from "@/lib/ventory/sizes";
 import { addSamples, clearSelected, createCheckpoint, deleteAd, deletePiece, importPieces, loadFloor, replaceFloor, saveAd, saveAds, saveMark, savePiece, saveTheme } from "@/lib/ventory/server";
-import { asTheme, THEMES, type ThemeId } from "@/lib/ventory/themes";
+import { asTheme, isLightTheme, LIGHT_THEMES, THEMES, type ThemeId } from "@/lib/ventory/themes";
 import { Wordmark } from "./mark";
 import { useScrollBars } from "./use-scroll-bars";
 import { RippleButton, rippleNav } from "./ripple";
@@ -557,6 +557,24 @@ export function House() {
     });
   }
 
+  // Faro's quick day/night flip: one tap steps to the other side, back to the
+  // theme you last used on that side (remembered per side), not a fixed default.
+  function flipTheme() {
+    const dark = !isLightTheme(theme);
+    let stored: string | null = null;
+    try {
+      localStorage.setItem(dark ? "ventory-night-theme" : "ventory-day-theme", theme);
+      stored = localStorage.getItem(dark ? "ventory-day-theme" : "ventory-night-theme");
+    } catch {
+      /* ignore */
+    }
+    const pool: ThemeId[] = dark ? LIGHT_THEMES : THEMES.map((item) => item.id).filter((id) => !isLightTheme(id));
+    const next: ThemeId = stored && pool.includes(stored as ThemeId) ? (stored as ThemeId) : dark ? "day" : "night";
+    setTheme(next);
+    applyTheme(next);
+    void saveTheme({ data: next });
+  }
+
   function foldStat(id: string) {
     if (pinnedStats.includes(id)) return;
     setOpenStats((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
@@ -641,6 +659,9 @@ export function House() {
           <button type="button" aria-label="Add" className="press grid size-9 place-items-center rounded-full bg-accent text-accent-ink" onClick={() => { setFilterOpen(false); setEditorFocus(null); setEditor(emptyInput()); }}>
             <Plus className="size-4" strokeWidth={1.75} />
           </button>
+          <button type="button" aria-label={isLightTheme(theme) ? "Night" : "Day"} className="press grid size-9 place-items-center rounded-full border border-line" onClick={flipTheme}>
+            {isLightTheme(theme) ? <Moon className="size-4" strokeWidth={1.75} /> : <Sun className="size-4" strokeWidth={1.75} />}
+          </button>
           <button type="button" aria-label="Settings" className="press grid size-9 place-items-center rounded-full border border-line" onClick={() => { setFilterOpen(false); setOpenSettings([]); setWipe([]); setWipeAsk(false); setSettings(true); }}>
             <SlidersHorizontal className="size-4" strokeWidth={1.75} />
           </button>
@@ -670,6 +691,7 @@ export function House() {
                 icon={icon}
                 tone={tone}
                 pressed={lens === id}
+                dimmed={lens !== null && lens !== id}
                 onClick={() => {
                   setLens((current) => (current === id ? null : id));
                   setView("floor");
@@ -1529,6 +1551,7 @@ function Summary({
   icon: Icon,
   tone,
   pressed,
+  dimmed,
   onClick,
 }: {
   label: string;
@@ -1537,24 +1560,31 @@ function Summary({
   icon: typeof Package;
   tone: string;
   pressed: boolean;
+  dimmed: boolean;
   onClick: () => void;
 }) {
+  // Faro's Central logic (its .lenses): with nothing picked, every chip wears
+  // its colour at full beauty; picking one keeps it lit (deeper wash + ring)
+  // and the rest humble themselves — opacity .62, saturate(.7).
   return (
     <RippleButton
       ink={tone}
       aria-pressed={pressed}
       onClick={onClick}
-      className="press flex min-h-32 flex-col rounded-3xl border px-4 py-3.5 text-left"
+      className="press sum-chip flex min-h-32 flex-col rounded-3xl border px-4 py-3.5 text-left"
       style={{
-        background: pressed ? `color-mix(in srgb, ${tone} 16%, var(--v-panel))` : "var(--v-panel)",
-        borderColor: pressed ? tone : `color-mix(in srgb, ${tone} 42%, var(--v-line))`,
+        background: `color-mix(in srgb, ${tone} ${pressed ? 28 : 16}%, var(--v-panel))`,
+        borderColor: tone,
+        boxShadow: pressed ? `inset 0 0 0 1.5px ${tone}` : undefined,
+        opacity: dimmed ? 0.62 : undefined,
+        filter: dimmed ? "saturate(.7)" : undefined,
       }}
     >
       <span className="flex items-center justify-between gap-2">
         <span className="text-[11px] tracking-[0.16em] text-faint uppercase">{label}</span>
         <span
           className="grid size-7 place-items-center rounded-full"
-          style={{ background: pressed ? tone : `color-mix(in srgb, ${tone} 18%, var(--v-canvas))`, color: pressed ? "#f6f3ec" : tone }}
+          style={{ background: tone, color: "#f6f3ec" }}
         >
           <Icon className="size-3.5" strokeWidth={1.75} />
         </span>
