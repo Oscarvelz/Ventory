@@ -395,7 +395,7 @@ function ActionCard({
         {piece ? <Thumb piece={piece} onPhoto={onPhoto} /> : null}
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-medium tracking-[0.14em] uppercase" style={{ color }}>{kicker}</p>
-          <h3 className="mt-1 font-display text-3xl leading-tight break-words">{title}</h3>
+          <h3 className="mt-1 truncate font-display text-2xl leading-tight" title={title}>{title}</h3>
           <p className="mt-2 text-sm leading-relaxed text-ink">{body}</p>
           {missing.length ? <p className="mt-2 text-sm text-ink">Missing {missing.join(", ")}.</p> : null}
           <div className="mt-4 flex flex-wrap items-center gap-2">
