@@ -379,55 +379,71 @@ html[data-theme="tron"] body { overflow-x: clip; }
   background: linear-gradient(0deg, #03090c, #050e12);
   box-shadow: 0 -1px 0 rgba(120, 225, 250, 0.5), 0 -8px 18px -10px rgba(0, 229, 255, 0.35);
 }
-/* A light cycle crosses the header's edge every few seconds. It runs
-   only while the app is visible and never under reduced motion — the
-   same discipline Faro and Weekly keep (html[data-hidden] is set by
-   spa/main.tsx, Weekly's tron-fx pattern). */
+/* The header beams, Weekly's way (1.0.17, at Oscar's word: Weekly's
+   lights "no cansan" — they do not parade). Until 1.0.16 both cycles
+   looped continuously in one direction on a metronome. Weekly instead
+   gives each beam a LONG timeline (8.5s) in which the pass itself takes
+   only the first 15% and the beam rests invisible for the remaining
+   85%; the two beams run in OPPOSITE directions on offset delays
+   (1.2s / 5.45s), so which light comes next, and when, never settles
+   into a pattern the eye can predict — it reads as random, and it
+   never tires. Ported from Weekly's tron-beam / tron-beam-back with
+   their exact timings; the travel distances are recomputed for
+   Ventory's beam widths (translateX is of the element's own width —
+   the 1.0.16 lesson: 560% carries the 24% teal fully off the edge,
+   730% carries the 14% amber fully off the other edge).
+   The beams rest at opacity 0, so under reduced motion (no animation)
+   nothing frozen hangs on the header; they also pause while the app
+   is hidden (html[data-hidden], set by spa/main.tsx). */
+[data-theme="tron"] .shelf-top::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 24%;
+  height: 2px;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(90deg, transparent, #00e5ff 55%, #e6faff);
+  filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.8));
+}
 @media (prefers-reduced-motion: no-preference) {
   html[data-theme="tron"]:not([data-hidden="true"]) .shelf-top::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    bottom: -1px;
-    width: 24%;
-    height: 2px;
-    pointer-events: none;
-    background: linear-gradient(90deg, transparent, #00e5ff 55%, #e6faff);
-    filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.8));
-    animation: tron-cycle 6.5s linear infinite;
+    animation: tron-beam 8.5s cubic-bezier(0.45, 0, 0.25, 1) 1.2s infinite;
   }
 }
-@keyframes tron-cycle {
-  from { transform: translateX(-110%); }
-  to { transform: translateX(430%); }
+@keyframes tron-beam {
+  0% { transform: translateX(-110%); opacity: 0; }
+  2% { opacity: 1; }
+  13% { opacity: 1; }
+  15% { transform: translateX(560%); opacity: 0; }
+  100% { transform: translateX(560%); opacity: 0; }
 }
-/* The second light: an amber cycle chases the teal one, half a period
-   behind — Faro's two sides of light, and the amber presence Oscar asked
-   for (1.0.14). Same gates as the first: visible tab, no reduced motion. */
+/* The second light races back the other way: anchored at the right
+   edge, its bright head leading leftward (Weekly's header amber). */
+[data-theme="tron"] .shelf-top::before {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  width: 14%;
+  height: 2px;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(270deg, transparent, #ffb21e 55%, #fff1c4);
+  filter: drop-shadow(0 0 6px rgba(255, 178, 30, 0.8));
+}
 @media (prefers-reduced-motion: no-preference) {
   html[data-theme="tron"]:not([data-hidden="true"]) .shelf-top::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    bottom: -1px;
-    width: 14%;
-    height: 2px;
-    pointer-events: none;
-    background: linear-gradient(90deg, transparent, #ffb21e 55%, #fff1c4);
-    filter: drop-shadow(0 0 6px rgba(255, 178, 30, 0.8));
-    animation: tron-cycle-amber 6.5s linear infinite;
-    animation-delay: -3.25s;
+    animation: tron-beam-back 8.5s cubic-bezier(0.45, 0, 0.25, 1) 5.45s infinite;
   }
 }
-/* The amber cycle needs its OWN track (1.0.16, from Oscar's screenshot):
-   translateX percentages are of the element's own width, so the teal
-   keyframes (430% of a 22%-wide cycle ≈ past the edge) strand a 14%-wide
-   amber at ~74% of the header — it vanished mid-line instead of sweeping
-   off the phone's edge. 730% of 14% carries it fully across, at the same
-   ground speed as the teal. */
-@keyframes tron-cycle-amber {
-  from { transform: translateX(-115%); }
-  to { transform: translateX(730%); }
+@keyframes tron-beam-back {
+  0% { transform: translateX(110%); opacity: 0; }
+  2% { opacity: 1; }
+  13% { opacity: 1; }
+  15% { transform: translateX(-730%); opacity: 0; }
+  100% { transform: translateX(-730%); opacity: 0; }
 }
 
 /* Type, reparted (1.0.14): Orbitron carries the wordmark and the short
