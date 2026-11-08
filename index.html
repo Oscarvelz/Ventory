@@ -18,11 +18,42 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560&family=Outfit:wght@400;500;600&display=swap" />
-    <script>try{var t=localStorage.getItem("ventory-theme");var c={night:"#121410",day:"#f4f1ea",dusk:"#1c1612",pine:"#0e1a14",ink:"#0c0e12",bone:"#f6f0e6",harbor:"#101820",tron:"#02060c"};if(c[t]){document.documentElement.dataset.theme=t;document.querySelector('meta[name="theme-color"]').setAttribute("content",c[t]);}}catch(e){}</script>
-    <script type="module" crossorigin src="./index-DAiRDBuX.js"></script>
-    <link rel="stylesheet" crossorigin href="./index-CE4pjVu8.css">
+    <script>try{var t=localStorage.getItem("ventory-theme");var c={night:"#121410",day:"#f4f1ea",dusk:"#1c1612",pine:"#0e1a14",ink:"#0c0e12",bone:"#f6f0e6",harbor:"#101820",tron:"#02060c"};var s={night:["#121410","#f3f0e8","#6f947c"],day:["#f4f1ea","#1a1c17","#3f6b50"],dusk:["#1c1612","#f6efe6","#c4846a"],pine:["#0e1a14","#e7f0e4","#8fb89a"],ink:["#0c0e12","#e8eaee","#8aa0b8"],bone:["#f6f0e6","#241c16","#8a5a3b"],harbor:["#101820","#e6eef1","#6f9aa8"],tron:["#02060c","#e6faff","#00e5ff"]};var row=s[t]||s.night;var el=document.documentElement;el.style.setProperty("--sp-bg",row[0]);el.style.setProperty("--sp-ink",row[1]);el.style.setProperty("--sp-accent",row[2]);if(c[t]){el.dataset.theme=t;document.querySelector('meta[name="theme-color"]').setAttribute("content",c[t]);}}catch(e){}</script>
+    <style>#ventory-splash{z-index:1000;background:var(--sp-bg,#121410);color:var(--sp-ink,#f3f0e8);place-items:center;transition:opacity .56s cubic-bezier(.4,0,.2,1),transform .56s cubic-bezier(.4,0,.2,1);display:grid;position:fixed;inset:0}#ventory-splash.is-leaving{opacity:0;pointer-events:none;transform:scale(1.035)}.vsp-lockup{justify-items:center;gap:16px;padding:24px;display:grid}.vsp-word{letter-spacing:-.02em;align-items:baseline;font-family:Fraunces,Georgia,serif;font-size:clamp(2.75rem,13vw,3.75rem);font-weight:560;line-height:1;display:flex}.vsp-mark{width:auto;height:.72em;color:var(--sp-ink,#f3f0e8);opacity:0;flex:none;margin-right:-.12em;animation:.6s cubic-bezier(.22,1,.36,1) .3s forwards vsp-in;transform:translateY(10px)scale(.92)}.vsp-mark .vsp-jewel{fill:var(--sp-accent,#6f947c)}.vsp-word>span{opacity:0;filter:blur(6px);animation:.7s cubic-bezier(.22,1,.36,1) forwards vsp-letter;display:inline-block;transform:translateY(12px)}@keyframes vsp-in{to{opacity:1;transform:none}}@keyframes vsp-letter{60%{filter:blur()}to{opacity:1;filter:blur();transform:none}}.vsp-track{background:#8c8c8c47;border-radius:2px;width:132px;height:2px;position:relative;overflow:hidden}.vsp-beam{opacity:0;border-radius:2px;width:38%;height:100%;position:absolute;top:0;left:0}.vsp-beam-a{background:linear-gradient(90deg, transparent, var(--sp-accent,#6f947c) 60%, #fff);animation:1.25s cubic-bezier(.45,0,.25,1) .75s forwards vsp-cross}.vsp-beam-b{background:linear-gradient(270deg,#0000,#ffb21e 60%,#fff1c4);animation:1.25s cubic-bezier(.45,0,.25,1) 1.3s forwards vsp-cross-back;display:none}html[data-theme=tron] .vsp-beam-b{display:block}@keyframes vsp-cross{0%{opacity:0;transform:translate(-110%)}12%{opacity:1}88%{opacity:1}to{opacity:0;transform:translate(290%)}}@keyframes vsp-cross-back{0%{opacity:0;transform:translate(290%)}12%{opacity:1}88%{opacity:1}to{opacity:0;transform:translate(-110%)}}@media (prefers-reduced-motion:reduce){#ventory-splash *,#ventory-splash :after{animation:none!important}.vsp-mark,.vsp-word>span{opacity:1;filter:none;transform:none}.vsp-beam{display:none!important}#ventory-splash.is-leaving{transform:none}}</style>
+    <script type="module" crossorigin src="./index-BNjqFGeJ.js"></script>
+    <link rel="stylesheet" crossorigin href="./index-C_OVWU10.css">
   </head>
   <body>
+    <div id="ventory-splash" role="status" aria-label="Ventory">
+      <div class="vsp-lockup">
+        <div class="vsp-word" aria-hidden="true">
+          <svg class="vsp-mark" viewBox="2 0 43.2 40"><path d="M3 1.5 L24 38.5 L45 1.5 L33.2 1.5 L24 22.8 L14.8 1.5 Z" fill="currentColor" /><rect class="vsp-jewel" x="19.3" y="3.4" width="9.4" height="8.2" rx="2.1" /></svg>
+          <span style="animation-delay:420ms">e</span><span style="animation-delay:490ms">n</span><span style="animation-delay:560ms">t</span><span style="animation-delay:630ms">o</span><span style="animation-delay:700ms">r</span><span style="animation-delay:770ms">y</span>
+        </div>
+        <div class="vsp-track" aria-hidden="true"><i class="vsp-beam vsp-beam-a"></i><i class="vsp-beam vsp-beam-b"></i></div>
+      </div>
+    </div>
     <div id="root"></div>
+    <script>
+      (function () {
+        var reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+        var MIN = reduce ? 700 : 2350, MAX = 5000, t0 = Date.now(), gone = false;
+        function hide() {
+          if (gone) return; gone = true;
+          var s = document.getElementById("ventory-splash");
+          if (!s) return;
+          s.classList.add("is-leaving");
+          setTimeout(function () { if (s.parentNode) s.parentNode.removeChild(s); window.__ventorySplashGone = true; }, 640);
+        }
+        function arm() {
+          if (!window.__ventoryShellReady) return;
+          var wait = MIN - (Date.now() - t0);
+          if (wait <= 0) hide(); else setTimeout(hide, wait);
+        }
+        window.addEventListener("ventory:shell-ready", arm);
+        var iv = setInterval(function () { arm(); if (gone) clearInterval(iv); }, 300);
+        setTimeout(hide, MAX);
+      })();
+    </script>
   </body>
 </html>
