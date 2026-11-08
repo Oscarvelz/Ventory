@@ -3,7 +3,7 @@ import { Camera, Check, ChevronDown } from "lucide-react";
 import type { Advice, AdviceCard } from "@/lib/ventory/advisor";
 import { missingOf } from "@/lib/ventory/advisor";
 import { daysHeld, money, type Piece } from "@/lib/ventory/model";
-import { tone as litTone } from "@/lib/ventory/tones";
+import { tone as litTone, toneInk } from "@/lib/ventory/tones";
 
 const GREEN = "#5f8f72";
 const AMBER = "#b08a3e";
@@ -167,7 +167,7 @@ export function AdvisorView({
 
   return (
     <div className="mt-4 space-y-5">
-      <section className="framed rounded-3xl bg-panel p-5">
+      <section className="advice-hero framed rounded-3xl bg-panel p-5">
         <p className="text-[11px] tracking-[0.16em] text-faint uppercase">Your shelf · {advice.stage}</p>
         <h2 className="mt-2 font-display text-4xl leading-tight break-words">{leadOf(advice.headline)}</h2>
         <p className="mt-3 font-display text-3xl leading-none">{advice.ready} of {onHand.length} ready</p>
@@ -399,7 +399,7 @@ function ActionCard({
           <p className="mt-2 text-sm leading-relaxed text-ink">{body}</p>
           {missing.length ? <p className="mt-2 text-sm text-ink">Missing {missing.join(", ")}.</p> : null}
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <button type="button" className="press h-11 rounded-full px-4 text-sm font-medium" style={{ background: color, color: "#f3f0e8" }} onClick={onOpen}>{button}</button>
+            <button type="button" className="press h-11 rounded-full px-4 text-sm font-medium" style={{ background: color, color: toneInk("#f3f0e8") }} onClick={onOpen}>{button}</button>
             <button type="button" className="press h-11 rounded-full border border-line px-4 text-sm text-ink" onClick={onLater}>Later</button>
           </div>
           {extra}

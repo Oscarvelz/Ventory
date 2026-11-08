@@ -8,7 +8,7 @@ import { parseFloorNotes } from "@/lib/ventory/paste";
 import { convertToUs } from "@/lib/ventory/sizes";
 import { addSamples, clearSelected, createCheckpoint, deleteAd, deletePiece, importPieces, isLegacySample, loadFloor, removeSamples, replaceFloor, sampleSetSize, saveAd, saveAds, saveMark, savePiece, saveTheme } from "@/lib/ventory/server";
 import { asTheme, isLightTheme, LIGHT_THEMES, THEMES, type ThemeId } from "@/lib/ventory/themes";
-import { tone as litTone } from "@/lib/ventory/tones";
+import { tone as litTone, toneInk } from "@/lib/ventory/tones";
 import { syncBarsNow } from "@/spa/native";
 import { Wordmark } from "./mark";
 import { useScrollBars } from "./use-scroll-bars";
@@ -1640,7 +1640,7 @@ function HistoryChip({
         color: "var(--v-ink)",
       }}
     >
-      <span className="grid size-9 shrink-0 place-items-center rounded-full text-[#f6f3ec]" style={{ background: tone }}>
+      <span className="grid size-9 shrink-0 place-items-center rounded-full text-[#f6f3ec]" style={{ background: tone, color: toneInk("#f6f3ec") }}>
         <Icon className="size-4" strokeWidth={1.75} />
       </span>
       <span className="min-w-0 flex-1">
@@ -1693,7 +1693,7 @@ function Summary({
         <span className="text-[11px] tracking-[0.16em] text-faint uppercase">{label}</span>
         <span
           className="grid size-7 place-items-center rounded-full"
-          style={{ background: tone, color: "#f6f3ec" }}
+          style={{ background: tone, color: toneInk("#f6f3ec") }}
         >
           <Icon className="size-3.5" strokeWidth={1.75} />
         </span>
@@ -2236,7 +2236,7 @@ function AdsWidget({ ads, pieces, onChange }: { ads: Ad[]; pieces: Piece[]; onCh
           borderColor: open ? tone : `color-mix(in srgb, ${tone} 35%, var(--v-line))`,
         }}
       >
-        <span className="grid size-9 shrink-0 place-items-center rounded-full text-[#f6f3ec]" style={{ background: tone }}>
+        <span className="grid size-9 shrink-0 place-items-center rounded-full text-[#f6f3ec]" style={{ background: tone, color: toneInk("#f6f3ec") }}>
           <Megaphone className="size-4" strokeWidth={1.75} />
         </span>
         <span className="min-w-0 flex-1">

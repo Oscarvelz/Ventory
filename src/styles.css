@@ -315,11 +315,18 @@
 }
 
 /* =====================================================================
-   Tron skin (1.0.12) — ported from Faro's tron.css and Weekly's
-   tron-14.css, retargeted to Ventory's surfaces. Skin only: colour,
-   light and one travelling light. No layout changes, and every other
-   theme is untouched. Fixed hues (chips, rings, Advisor) are lit in JS
-   by lib/ventory/tones.ts, Faro's tronize() adapted.
+   Tron skin (1.0.12, redesigned 1.0.14) — ported from Faro's tron.css
+   and Weekly's tron-14.css, retargeted to Ventory's surfaces. Skin
+   only: colour, light and two travelling lights. No layout changes,
+   and every other theme is untouched. Fixed hues (chips, rings,
+   Advisor) are mapped/lit in JS by lib/ventory/tones.ts.
+   1.0.14, after Oscar's rejection of the first pass from his own
+   screenshots: the world was turned DOWN (grid, circuits, floor and
+   horizon at a whisper, so content on its opaque panels owns the
+   contrast), the header and dock went SOLID (text was ghosting through
+   the translucent glass), an amber cycle now chases the teal one, and
+   the type was reparted — Orbitron for the wordmark and short headings,
+   Exo 2 for every digit and for the Advisor's sentence-long hero.
    ===================================================================== */
 
 /* The world: a storm-lit sky, circuit traces and the Grid under
@@ -327,11 +334,11 @@
 [data-theme="tron"] body {
   background-color: #02060c;
   background-image:
-    radial-gradient(120% 40% at 50% 112%, rgba(0, 200, 255, 0.18), transparent 60%),
-    radial-gradient(70% 26% at 18% -4%, rgba(0, 229, 255, 0.14), transparent 62%),
-    linear-gradient(rgba(0, 229, 255, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 229, 255, 0.07) 1px, transparent 1px),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cg fill='none' stroke='%2300e5ff' stroke-opacity='0.16' stroke-width='1'%3E%3Cpath d='M12 48H78V96H140'/%3E%3Cpath d='M36 168H110V72'/%3E%3Cpath d='M150 28V84H196'/%3E%3Cpath d='M168 150H210'/%3E%3C/g%3E%3Ccircle cx='78' cy='48' r='2' fill='%2300e5ff' fill-opacity='0.45'/%3E%3Ccircle cx='140' cy='96' r='2' fill='%2300e5ff' fill-opacity='0.35'/%3E%3Ccircle cx='110' cy='72' r='2' fill='%2300e5ff' fill-opacity='0.35'/%3E%3C/svg%3E");
+    radial-gradient(120% 40% at 50% 112%, rgba(0, 200, 255, 0.1), transparent 60%),
+    radial-gradient(70% 26% at 18% -4%, rgba(0, 229, 255, 0.07), transparent 62%),
+    linear-gradient(rgba(0, 229, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 229, 255, 0.035) 1px, transparent 1px),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cg fill='none' stroke='%2300e5ff' stroke-opacity='0.08' stroke-width='1'%3E%3Cpath d='M12 48H78V96H140'/%3E%3Cpath d='M36 168H110V72'/%3E%3Cpath d='M150 28V84H196'/%3E%3Cpath d='M168 150H210'/%3E%3C/g%3E%3Ccircle cx='78' cy='48' r='2' fill='%2300e5ff' fill-opacity='0.22'/%3E%3Ccircle cx='140' cy='96' r='2' fill='%2300e5ff' fill-opacity='0.18'/%3E%3Ccircle cx='110' cy='72' r='2' fill='%2300e5ff' fill-opacity='0.18'/%3E%3C/svg%3E");
   background-size: auto, auto, 44px 44px, 44px 44px, 220px 220px;
   background-attachment: fixed;
 }
@@ -345,31 +352,31 @@ html[data-theme="tron"] body { overflow-x: clip; }
 [data-theme="tron"] body::before {
   top: 30vh; height: 22vh;
   background:
-    linear-gradient(180deg, transparent 48%, rgba(120, 225, 250, 0.55) 50%, transparent 52%),
-    radial-gradient(40% 70% at 50% 50%, rgba(0, 229, 255, 0.26), transparent 70%);
-  opacity: 0.8;
+    linear-gradient(180deg, transparent 48%, rgba(120, 225, 250, 0.3) 50%, transparent 52%),
+    radial-gradient(40% 70% at 50% 50%, rgba(0, 229, 255, 0.16), transparent 70%);
+  opacity: 0.4;
 }
 [data-theme="tron"] body::after {
   bottom: 0; height: 62vh;
   background-image:
-    linear-gradient(rgba(0, 229, 255, 0.32) 1.5px, transparent 1.5px),
-    linear-gradient(90deg, rgba(0, 229, 255, 0.32) 1.5px, transparent 1.5px);
+    linear-gradient(rgba(0, 229, 255, 0.15) 1.5px, transparent 1.5px),
+    linear-gradient(90deg, rgba(0, 229, 255, 0.15) 1.5px, transparent 1.5px);
   background-size: 44px 44px;
   background-position: center top;
   transform: perspective(320px) rotateX(62deg);
   transform-origin: 50% 0;
   -webkit-mask: linear-gradient(180deg, transparent 0%, #000 45%);
           mask: linear-gradient(180deg, transparent 0%, #000 45%);
-  opacity: 0.5;
+  opacity: 0.3;
 }
 
 /* Header and dock: black glass edged with a light line (Faro's chrome). */
 [data-theme="tron"] .shelf-top {
-  background: linear-gradient(180deg, rgba(3, 9, 12, 0.97), rgba(6, 16, 20, 0.94));
+  background: linear-gradient(180deg, #03090c, #050e12);
   box-shadow: 0 1px 0 rgba(120, 225, 250, 0.5), 0 8px 18px -10px rgba(0, 229, 255, 0.35);
 }
 [data-theme="tron"] .shelf-dock {
-  background: linear-gradient(0deg, rgba(3, 9, 12, 0.97), rgba(6, 16, 20, 0.94));
+  background: linear-gradient(0deg, #03090c, #050e12);
   box-shadow: 0 -1px 0 rgba(120, 225, 250, 0.5), 0 -8px 18px -10px rgba(0, 229, 255, 0.35);
 }
 /* A light cycle crosses the header's edge every few seconds. It runs
@@ -393,6 +400,43 @@ html[data-theme="tron"] body { overflow-x: clip; }
 @keyframes tron-cycle {
   from { transform: translateX(-110%); }
   to { transform: translateX(430%); }
+}
+/* The second light: an amber cycle chases the teal one, half a period
+   behind — Faro's two sides of light, and the amber presence Oscar asked
+   for (1.0.14). Same gates as the first: visible tab, no reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  html[data-theme="tron"]:not([data-hidden="true"]) .shelf-top::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    bottom: -1px;
+    width: 14%;
+    height: 2px;
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, #ffb21e 55%, #fff1c4);
+    filter: drop-shadow(0 0 6px rgba(255, 178, 30, 0.8));
+    animation: tron-cycle 6.5s linear infinite;
+    animation-delay: -3.25s;
+  }
+}
+
+/* Type, reparted (1.0.14): Orbitron carries the wordmark and the short
+   headings; DIGITS belong to Exo 2 — Orbitron's squared zero made money
+   read as glyphs ($956.00 with a strange 0). Every figure in the app is
+   tabular-nums, so the one rule moves them all. The Advisor's hero is a
+   full sentence, not a heading: it speaks in Exo too, at a calm size. */
+[data-theme="tron"] .tabular-nums {
+  font-family: var(--font-sans);
+}
+[data-theme="tron"] .advice-hero h2 {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 1.5rem;
+  line-height: 1.3;
+  letter-spacing: 0;
+}
+[data-theme="tron"] .advice-hero .font-display {
+  font-family: var(--font-sans);
 }
 
 /* The wordmark, lit like Weekly's: a white-hot core in cyan light. */
