@@ -257,20 +257,148 @@ export async function createCheckpoint({ data }: { data: string }) {
   return readChecks();
 }
 
-function emptySample(name: string, category: string, subcategory: string, status: Status, sizeSystem: string, sizeLabel: string, fit: string, costCents: number, askCents: number, source: string): PieceInput {
-  return { name, category, subcategory, brand: "", status, qty: 1, sizeSystem, sizeLabel, usSize: "", fit, costCents, askCents, saleCents: null, discountCents: 0, source, channel: "", clientName: "", receivedOn: new Date().toISOString().slice(0, 10), soldOn: null, notes: "", place: "", photo: "", problem: "", wasSold: false };
+/* ---------- the sample floor (1.0.7) ----------
+   A complete example business, built backwards from every surface that has
+   to speak: the four chips, the shelf in every size, History's sales board,
+   every Statistics fold, and the Advisor's full hand of cards. Every date is
+   computed from the day the floor is loaded (days ago / days ahead), so the
+   week, month and year boards and the aging ladder read the same whenever
+   it is loaded. Samples are TAGGED by their ids ("sample-…"): loading writes
+   only those ids, and removeSamples tombstones exactly those ids, so a real
+   record is never modified, shadowed or removed by either action. Loading
+   twice refreshes the same records instead of duplicating them. */
+
+export const SAMPLE_PREFIX = "sample-";
+
+export function isSampleId(id: string) {
+  return id.startsWith(SAMPLE_PREFIX);
 }
-const SAMPLES: PieceInput[] = [
-  emptySample("Chelsea boot", "Boot", "Chelsea", "available", "CN", "37", "women", 2800, 7500, "Shein"),
-  emptySample("Combat boot", "Boot", "Combat", "available", "CN", "42", "men", 3500, 9000, "Temu"),
-  emptySample("Seiko 5", "Watch", "", "available", "", "", "unisex", 8000, 16000, "eBay"),
-  emptySample("Square-toe boot", "Boot", "Square-toe", "incoming", "CN", "40", "women", 3200, 8500, "AliExpress"),
-];
+
+function isoInDays(offset: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${month}-${day}`;
+}
+
+function samplePhoto(initials: string, bg: string): string {
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='96' height='96'><rect width='96' height='96' rx='18' fill='${bg}'/><text x='48' y='61' font-family='Georgia, serif' font-size='30' fill='#f3f0e8' text-anchor='middle'>${initials}</text></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+function sized(system: string, label: string, fit: string) {
+  return { sizeSystem: system, sizeLabel: label, usSize: convertToUs(system, label, fit) ?? "" };
+}
+
+function samplePiece(id: string, fields: Partial<PieceInput> & { name: string }): PieceInput {
+  return {
+    id: `${SAMPLE_PREFIX}${id}`,
+    category: "Boot",
+    subcategory: "",
+    brand: "",
+    status: "available",
+    qty: 1,
+    sizeSystem: "",
+    sizeLabel: "",
+    usSize: "",
+    fit: "women",
+    costCents: 0,
+    askCents: 0,
+    saleCents: null,
+    discountCents: 0,
+    source: "",
+    channel: "",
+    clientName: "",
+    receivedOn: null,
+    soldOn: null,
+    notes: "",
+    place: "home",
+    photo: "",
+    problem: "",
+    wasSold: false,
+    ...fields,
+  };
+}
+
+export function buildSamples(): { pieces: PieceInput[]; ads: { id: string; product: string; spentCents: number; startedOn: string | null; endedOn: string | null; worked: Ad["worked"] }[] } {
+  const pieces: PieceInput[] = [
+    /* On hand — the shelf itself, in every state of readiness. The priciest
+       piece has no size, so the Advisor's first action is "Add size"; the
+       oldest has sat 52 days, inside the ladder's 31–60 rung, so its named
+       10% cut and what stays after cost are spoken out loud. */
+    samplePiece("01", { name: "Rancher boot", subcategory: "Ranch", brand: "Nocona", fit: "men", costCents: 6800, askCents: 14500, source: "eBay", receivedOn: isoInDays(-20), photo: samplePhoto("RB", "#7a4a2b") }),
+    samplePiece("02", { name: "Chelsea boot", subcategory: "Chelsea", brand: "Marc Fisher", costCents: 3400, askCents: 8900, ...sized("CN", "38", "women"), source: "AliExpress", receivedOn: isoInDays(-52), photo: samplePhoto("CB", "#4a5d7a") }),
+    samplePiece("03", { name: "Combat boot", subcategory: "Combat", brand: "Timberland", fit: "men", costCents: 5200, askCents: 12800, ...sized("CN", "43", "men"), source: "Temu", place: "car", receivedOn: isoInDays(-38), photo: samplePhoto("CB", "#5d6b4a") }),
+    samplePiece("04", { name: "Square-toe boot", subcategory: "Square-toe", brand: "Justin", costCents: 4600, askCents: 9900, ...sized("CN", "40", "women"), source: "eBay", receivedOn: isoInDays(-26), photo: samplePhoto("SB", "#8a6a3b") }),
+    samplePiece("05", { name: "Seiko 5", category: "Watch", brand: "Seiko", fit: "unisex", costCents: 5900, askCents: 13900, source: "eBay", receivedOn: isoInDays(-15), photo: samplePhoto("S5", "#3b4a5d") }),
+    samplePiece("06", { name: "Hiking boot", subcategory: "Hiking", brand: "Merrell", fit: "men", costCents: 4800, askCents: 11200, ...sized("CN", "44", "men"), source: "Amazon", receivedOn: isoInDays(-8), problem: "unsure", photo: samplePhoto("HB", "#6b4a3b") }),
+    samplePiece("07", { name: "Ankle boot", subcategory: "Ankle", brand: "Sam Edelman", costCents: 3900, askCents: 9200, ...sized("CN", "37", "women"), source: "Shein", receivedOn: isoInDays(-5), photo: samplePhoto("AB", "#7a3b4a") }),
+    samplePiece("08", { name: "Casio G-Shock", category: "Watch", brand: "Casio", fit: "unisex", costCents: 4500, askCents: 9800, source: "AliExpress", receivedOn: isoInDays(-12) }),
+    samplePiece("09", { name: "Work boot", subcategory: "Work", brand: "CAT", fit: "men", costCents: 5600, askCents: 12400, ...sized("CN", "42", "men"), source: "Temu", receivedOn: isoInDays(-33), photo: samplePhoto("WB", "#4a4a4a") }),
+    samplePiece("10", { name: "Fossil Grant", category: "Watch", brand: "Fossil", fit: "unisex", qty: 2, costCents: 5100, askCents: 11900, source: "eBay", receivedOn: isoInDays(-3), photo: samplePhoto("FG", "#5d3b6b") }),
+    samplePiece("11", { name: "Penny loafer", category: "Loafer", subcategory: "Penny", brand: "Cole Haan", costCents: 4200, askCents: 3900, ...sized("CN", "39", "women"), source: "Shein", receivedOn: isoInDays(-18), notes: "Priced under cost by mistake — the Advisor should catch this.", photo: samplePhoto("PL", "#6b5a3b") }),
+    samplePiece("12", { name: "Rain boot", subcategory: "Rain", brand: "Hunter", costCents: 3000, askCents: 7400, ...sized("CN", "36", "women"), source: "AliExpress", receivedOn: isoInDays(-1), photo: samplePhoto("RB", "#3b6b5a") }),
+
+    /* Incoming — one fresh, one expected, one 36 days late, one with no date
+       at all, so the Advisor's "Has it arrived?" card has both its lines. */
+    samplePiece("13", { name: "Western boot", subcategory: "Western", brand: "Ariat", status: "incoming", costCents: 6100, askCents: 13800, ...sized("CN", "39", "women"), source: "eBay", receivedOn: isoInDays(-2), photo: samplePhoto("WB", "#8a5a2b") }),
+    samplePiece("14", { name: "Steel-toe boot", subcategory: "Steel-toe", brand: "Wolverine", fit: "men", status: "incoming", costCents: 5400, askCents: 12100, ...sized("CN", "43", "men"), source: "Amazon", place: "", receivedOn: isoInDays(-36), problem: "late", photo: samplePhoto("ST", "#555f6b") }),
+    samplePiece("15", { name: "Timex Weekender", category: "Watch", brand: "Timex", fit: "unisex", status: "incoming", costCents: 2600, askCents: 5900, source: "AliExpress", receivedOn: null, photo: samplePhoto("TW", "#6b3b3b") }),
+    samplePiece("16", { name: "Knee-high boot", subcategory: "Knee-high", brand: "Frye", status: "incoming", costCents: 6400, askCents: 14900, ...sized("CN", "38", "women"), source: "eBay", receivedOn: isoInDays(-6), photo: samplePhoto("KB", "#4a3b2b") }),
+
+    /* Sold — a coherent sales history: this week, this month, last month and
+       earlier this year, across channels, with discounts, one sale with no
+       date and one with no price, so every Statistics fold has its story. */
+    samplePiece("17", { name: "Chelsea boot", subcategory: "Chelsea", brand: "Marc Fisher", status: "sold", wasSold: true, costCents: 3300, askCents: 8900, saleCents: 8400, ...sized("CN", "38", "women"), source: "AliExpress", channel: "Facebook Marketplace", clientName: "Marisol G.", receivedOn: isoInDays(-30), soldOn: isoInDays(-1), photo: samplePhoto("CB", "#4a5d7a") }),
+    samplePiece("18", { name: "Chelsea boot", subcategory: "Chelsea", brand: "Marc Fisher", status: "sold", wasSold: true, costCents: 3100, askCents: 8200, saleCents: 7900, ...sized("CN", "37", "women"), source: "AliExpress", channel: "eBay", clientName: "Dana R.", receivedOn: isoInDays(-70), soldOn: isoInDays(-40), photo: samplePhoto("CB", "#4a5d7a") }),
+    samplePiece("19", { name: "Combat boot", subcategory: "Combat", brand: "Timberland", fit: "men", status: "sold", wasSold: true, costCents: 5000, askCents: 12800, saleCents: 11900, discountCents: 500, ...sized("CN", "42", "men"), source: "Temu", channel: "Facebook Marketplace", clientName: "Jose M.", receivedOn: isoInDays(-55), soldOn: isoInDays(-9), photo: samplePhoto("CB", "#5d6b4a") }),
+    samplePiece("20", { name: "Seiko 5", category: "Watch", brand: "Seiko", fit: "unisex", status: "sold", wasSold: true, costCents: 7800, askCents: 15900, saleCents: 15400, source: "eBay", channel: "eBay", clientName: "Priya S.", receivedOn: isoInDays(-120), soldOn: isoInDays(-80), photo: samplePhoto("S5", "#3b4a5d") }),
+    samplePiece("21", { name: "Square-toe boot", subcategory: "Square-toe", brand: "Justin", status: "sold", wasSold: true, qty: 2, costCents: 4400, askCents: 9900, saleCents: 9600, ...sized("CN", "40", "women"), source: "eBay", channel: "In person", clientName: "Carla T.", receivedOn: isoInDays(-95), soldOn: isoInDays(-45), photo: samplePhoto("SB", "#8a6a3b") }),
+    samplePiece("22", { name: "Ankle boot", subcategory: "Ankle", brand: "Sam Edelman", status: "sold", wasSold: true, costCents: 3600, askCents: 9200, saleCents: 8800, discountCents: 300, ...sized("CN", "37", "women"), source: "Shein", channel: "Instagram", clientName: "Bea L.", receivedOn: isoInDays(-25), soldOn: isoInDays(-3), photo: samplePhoto("AB", "#7a3b4a") }),
+    samplePiece("23", { name: "Casio Vintage", category: "Watch", brand: "Casio", fit: "unisex", status: "sold", wasSold: true, costCents: 1900, askCents: 4500, saleCents: 4200, source: "AliExpress", channel: "Facebook Marketplace", receivedOn: isoInDays(-60), soldOn: null, photo: samplePhoto("CV", "#6b6b3b") }),
+    samplePiece("24", { name: "Rain boot", subcategory: "Rain", brand: "Hunter", status: "sold", wasSold: true, costCents: 2800, askCents: 7400, saleCents: null, ...sized("CN", "36", "women"), source: "Shein", channel: "In person", receivedOn: isoInDays(-50), soldOn: isoInDays(-20), photo: samplePhoto("RB", "#3b6b5a") }),
+    samplePiece("25", { name: "Hiking boot", subcategory: "Hiking", brand: "Merrell", fit: "men", status: "sold", wasSold: true, costCents: 4700, askCents: 11200, saleCents: 10900, ...sized("CN", "44", "men"), source: "Amazon", channel: "eBay", clientName: "Tom W.", receivedOn: isoInDays(-210), soldOn: isoInDays(-160), photo: samplePhoto("HB", "#6b4a3b") }),
+
+    /* Archive and kept — a gifted piece and a damaged one (the Advisor reads
+       their "Removed:" reasons as lessons and unrecovered cost), a sale that
+       was later archived, and a pair the seller kept on purpose. */
+    samplePiece("26", { name: "Strappy heel", category: "Heel", subcategory: "Strappy", brand: "Nine West", status: "archived", costCents: 2400, askCents: 5600, ...sized("CN", "37", "women"), source: "Shein", receivedOn: isoInDays(-80), notes: "Removed: Gifted", photo: samplePhoto("SH", "#8a3b5a") }),
+    samplePiece("27", { name: "Moto boot", subcategory: "Moto", brand: "Frye", fit: "men", status: "archived", costCents: 5800, askCents: 13200, ...sized("CN", "43", "men"), source: "eBay", receivedOn: isoInDays(-100), notes: "Removed: Damaged", photo: samplePhoto("MB", "#3b3b4a") }),
+    samplePiece("28", { name: "Driving loafer", category: "Loafer", subcategory: "Driving", brand: "Cole Haan", fit: "men", status: "archived", wasSold: true, costCents: 4100, askCents: 9200, saleCents: 8900, ...sized("CN", "42", "men"), source: "Amazon", channel: "eBay", clientName: "Sam K.", receivedOn: isoInDays(-150), soldOn: isoInDays(-110), photo: samplePhoto("DL", "#5a4a6b") }),
+    samplePiece("29", { name: "Engineer boot", subcategory: "Engineer", brand: "Red Wing", fit: "men", status: "kept", costCents: 8900, askCents: 0, ...sized("CN", "43", "men"), source: "eBay", receivedOn: isoInDays(-140), notes: "My own pair — not for sale.", photo: samplePhoto("EB", "#6b2b2b") }),
+  ];
+
+  /* Ads matched to pieces by product name, the way the engine reads them:
+     one that worked on a sold watch, one that did not on a sold boot, and
+     one still running on the piece the Advisor sends you to first. */
+  const ads = [
+    { id: `${SAMPLE_PREFIX}ad-1`, product: "Seiko 5", spentCents: 900, startedOn: isoInDays(-100), endedOn: isoInDays(-85), worked: "yes" as const },
+    { id: `${SAMPLE_PREFIX}ad-2`, product: "Combat boot", spentCents: 700, startedOn: isoInDays(-50), endedOn: isoInDays(-30), worked: "no" as const },
+    { id: `${SAMPLE_PREFIX}ad-3`, product: "Rancher boot", spentCents: 400, startedOn: isoInDays(-6), endedOn: null, worked: "running" as const },
+  ];
+
+  return { pieces, ads };
+}
 
 export async function addSamples() {
-  for (const sample of SAMPLES) {
-    const us = sample.sizeLabel ? convertToUs(sample.sizeSystem, sample.sizeLabel, sample.fit) : null;
-    await upsert({ ...sample, usSize: us ?? "" });
+  const { pieces, ads } = buildSamples();
+  for (const piece of pieces) await upsert(piece);
+  for (const ad of ads) {
+    await store.write([{ kind: "ad", id: ad.id, data: { product: ad.product, spentCents: ad.spentCents, startedOn: ad.startedOn, endedOn: ad.endedOn, worked: ad.worked } }]);
   }
   return readPieces();
+}
+
+/** Takes the sample floor back out — exactly the sample-tagged records, and
+    nothing else. Real pieces and ads keep their ids, their sort and their
+    data, so the floor is precisely what it was before the samples loaded. */
+export async function removeSamples() {
+  const pieces = store.list("piece").filter((r) => isSampleId(r.id));
+  const ads = store.list("ad").filter((r) => isSampleId(r.id));
+  await store.write([
+    ...pieces.map((r) => ({ kind: "piece" as const, id: r.id, deleted: true })),
+    ...ads.map((r) => ({ kind: "ad" as const, id: r.id, deleted: true })),
+  ]);
+  return { pieces: readPieces(), ads: readAds(), removedPieces: pieces.length, removedAds: ads.length };
 }

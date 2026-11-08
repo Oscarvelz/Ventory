@@ -6,7 +6,7 @@ import { buildAdvice } from "@/lib/ventory/advisor";
 import { AdvisorView, type AdviceFocus } from "@/components/ventory/Advisor";
 import { parseFloorNotes } from "@/lib/ventory/paste";
 import { convertToUs } from "@/lib/ventory/sizes";
-import { addSamples, clearSelected, createCheckpoint, deleteAd, deletePiece, importPieces, loadFloor, replaceFloor, saveAd, saveAds, saveMark, savePiece, saveTheme } from "@/lib/ventory/server";
+import { addSamples, clearSelected, createCheckpoint, deleteAd, deletePiece, importPieces, loadFloor, removeSamples, replaceFloor, saveAd, saveAds, saveMark, savePiece, saveTheme } from "@/lib/ventory/server";
 import { asTheme, isLightTheme, LIGHT_THEMES, THEMES, type ThemeId } from "@/lib/ventory/themes";
 import { syncBarsNow } from "@/spa/native";
 import { Wordmark } from "./mark";
@@ -281,6 +281,7 @@ export function House() {
   const [openSettings, setOpenSettings] = useState<string[]>([]);
   const [wipe, setWipe] = useState<string[]>([]);
   const [wipeAsk, setWipeAsk] = useState(false);
+  const [sampleAsk, setSampleAsk] = useState(false);
   const [wiping, setWiping] = useState(false);
   const [notice, setNotice] = useState("");
   const touchX = useRef(0);
@@ -601,6 +602,9 @@ export function House() {
       ? "surface relative translate-y-0 opacity-100 blur-none"
       : "surface pointer-events-none absolute inset-x-0 top-0 h-0 overflow-hidden opacity-0";
 
+  const samplePieces = pieces.filter((piece) => piece.id.startsWith("sample-"));
+  const sampleAds = ads.filter((ad) => ad.id.startsWith("sample-"));
+
   const wipeRows = [
     { id: "available", label: "Available", count: pieces.filter((piece) => piece.status === "available").length },
     { id: "incoming", label: "Incoming", count: pieces.filter((piece) => piece.status === "incoming").length },
@@ -735,7 +739,7 @@ export function House() {
                 type="button"
                 className="press mt-5 h-11 rounded-full border border-line px-4 text-sm"
                 onClick={() => {
-                  void addSamples().then(setPieces).then(() => setNotice("Sample floor added"));
+                  void addSamples().then(setPieces).then(() => setNotice("Sample floor added — take it out anytime in Settings, under Remove data"));
                 }}
               >
                 Load a sample floor
@@ -1228,6 +1232,17 @@ export function House() {
               ) : null}
             </SettingFold>
             <SettingFold title="Remove data" open={openSettings.includes("remove")} onToggle={() => setOpenSettings((current) => current.includes("remove") ? current.filter((id) => id !== "remove") : [...current, "remove"])}>
+              {samplePieces.length || sampleAds.length ? (
+                <div className="mb-3 rounded-2xl border border-line px-3 py-3">
+                  <p className="text-sm">Sample floor</p>
+                  <p className="mt-0.5 text-xs leading-relaxed text-muted">
+                    {samplePieces.length} example {samplePieces.length === 1 ? "piece" : "pieces"} and {sampleAds.length} example ad {sampleAds.length === 1 ? "record" : "records"} from “Load a sample floor”. Removing them leaves your own pieces and ads exactly as they are.
+                  </p>
+                  <button type="button" className="press mt-2 h-10 rounded-full border border-danger px-4 text-sm text-danger" onClick={() => setSampleAsk(true)}>
+                    Remove sample floor
+                  </button>
+                </div>
+              ) : null}
               <p className="mb-3 text-xs leading-relaxed text-muted">Choose what to take off the shelf. Nothing is removed until you confirm.</p>
               <div className="space-y-1">
                 {wipeRows.map((row) => {
@@ -1268,6 +1283,35 @@ export function House() {
           <button type="button" className="press mt-4 h-11 rounded-full border border-line px-4 text-sm" onClick={() => setSettings(false)}>
             Close
           </button>
+        </Overlay>
+      ) : null}
+
+      {sampleAsk ? (
+        <Overlay onClose={() => setSampleAsk(false)}>
+          <p className="font-display text-2xl">Remove the sample floor?</p>
+          <p className="mt-3 text-sm leading-relaxed text-muted">
+            {samplePieces.length} example {samplePieces.length === 1 ? "piece" : "pieces"} and {sampleAds.length} example ad {sampleAds.length === 1 ? "record" : "records"} go. Only the examples — your own pieces and ads stay exactly as they are, and you can load the sample floor again whenever you like.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="press h-11 rounded-full border border-danger bg-danger-soft px-4 text-sm font-medium text-danger"
+              onClick={() => {
+                void removeSamples().then((next) => {
+                  setPieces(next.pieces);
+                  setAds(next.ads);
+                  setSampleAsk(false);
+                  setNotice(`Removed ${next.removedPieces} example ${next.removedPieces === 1 ? "piece" : "pieces"}`);
+                }).catch((err: unknown) => {
+                  setSampleAsk(false);
+                  setNotice(err instanceof Error ? err.message : "Could not remove the sample floor");
+                });
+              }}
+            >
+              Remove
+            </button>
+            <button type="button" className="press h-11 rounded-full border border-line px-4 text-sm" onClick={() => setSampleAsk(false)}>Cancel</button>
+          </div>
         </Overlay>
       ) : null}
 
