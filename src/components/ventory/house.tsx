@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Archive, BadgeCheck, Car, Check, ChevronDown, CircleAlert, CircleDollarSign, ClipboardPaste, Clock, Footprints, Funnel, Glasses, House as HomeIcon, ImagePlus, LayoutGrid, List, Megaphone, Moon, Package, Pin, Plus, RectangleHorizontal, Rows2, Shirt, ShoppingBag, SlidersHorizontal, Sun, Trash2, TrendingUp, Truck, Watch } from "lucide-react";
-import { UserButton } from "@/lib/auth/gates";
+import { Archive, BadgeCheck, Car, Check, ChevronDown, CircleAlert, CircleDollarSign, ClipboardPaste, Clock, DatabaseBackup, Footprints, Funnel, Glasses, House as HomeIcon, ImagePlus, LayoutGrid, List, Megaphone, Moon, Package, Palette, Pin, Plus, RectangleHorizontal, Rows2, ShieldCheck, Shirt, ShoppingBag, SlidersHorizontal, Sun, Trash2, TrendingUp, Truck, Watch } from "lucide-react";
+import { AccountCard, FingerprintControl, SignOutCard } from "@/lib/auth/gates";
 import { daysHeld, dollarsToCents, emptyInput, money, PROBLEMS, STATUS_LABEL, STATUSES, todayISO, type Ad, type Piece, type PieceInput, type Status } from "@/lib/ventory/model";
 import { buildAdvice } from "@/lib/ventory/advisor";
 import { AdvisorView, type AdviceFocus } from "@/components/ventory/Advisor";
@@ -13,7 +13,7 @@ import { Wordmark } from "./mark";
 import { useScrollBars } from "./use-scroll-bars";
 import { RippleButton, rippleNav } from "./ripple";
 
-const SETTING_FOLDS = ["theme", "ads", "backup", "sample", "remove"] as const;
+const SETTING_FOLDS = ["theme", "ads", "backup", "sample", "security", "remove"] as const;
 type Floor = Awaited<ReturnType<typeof loadFloor>>;
 type View = "floor" | "history" | "ledger";
 type Shelf = "live" | "all" | Status;
@@ -1149,10 +1149,10 @@ export function House() {
             <span className={`grid size-4 place-items-center rounded border ${SETTING_FOLDS.every((id) => openSettings.includes(id)) ? "border-accent bg-accent text-accent-ink" : "border-line bg-canvas"}`}>
               {SETTING_FOLDS.every((id) => openSettings.includes(id)) ? <Check className="size-3" strokeWidth={2.75} /> : null}
             </span>
-            Unfold all
+            {SETTING_FOLDS.every((id) => openSettings.includes(id)) ? "Fold" : "Unfold"}
           </button>
           <div className="mt-3 space-y-2">
-            <SettingFold title="Theme" open={openSettings.includes("theme")} onToggle={() => setOpenSettings((current) => current.includes("theme") ? current.filter((id) => id !== "theme") : [...current, "theme"])}>
+            <SettingFold title="Theme" icon={<Palette className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("theme")} onToggle={() => setOpenSettings((current) => current.includes("theme") ? current.filter((id) => id !== "theme") : [...current, "theme"])}>
               <div className="grid grid-cols-2 gap-2">
                 {THEMES.map((item) => (
                   <RippleButton
@@ -1172,7 +1172,7 @@ export function House() {
                 ))}
               </div>
             </SettingFold>
-            <SettingFold title="Facebook ads" open={openSettings.includes("ads")} onToggle={() => setOpenSettings((current) => current.includes("ads") ? current.filter((id) => id !== "ads") : [...current, "ads"])}>
+            <SettingFold title="Facebook ads" icon={<Megaphone className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("ads")} onToggle={() => setOpenSettings((current) => current.includes("ads") ? current.filter((id) => id !== "ads") : [...current, "ads"])}>
               <button
                 type="button"
                 aria-pressed={adsOn}
@@ -1190,7 +1190,7 @@ export function House() {
                 <span className={`grid h-7 w-12 place-items-center rounded-full text-xs ${adsOn ? "text-[#f6f3ec]" : "bg-canvas text-muted"}`} style={adsOn ? { background: "#7d5a86" } : undefined}>{adsOn ? "On" : "Off"}</span>
               </button>
             </SettingFold>
-            <SettingFold title="Backup" open={openSettings.includes("backup")} onToggle={() => setOpenSettings((current) => current.includes("backup") ? current.filter((id) => id !== "backup") : [...current, "backup"])}>
+            <SettingFold title="Backup" icon={<DatabaseBackup className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("backup")} onToggle={() => setOpenSettings((current) => current.includes("backup") ? current.filter((id) => id !== "backup") : [...current, "backup"])}>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -1245,7 +1245,7 @@ export function House() {
                 </ul>
               ) : null}
             </SettingFold>
-            <SettingFold title="Sample floor" open={openSettings.includes("sample")} onToggle={() => setOpenSettings((current) => current.includes("sample") ? current.filter((id) => id !== "sample") : [...current, "sample"])}>
+            <SettingFold title="Sample floor" icon={<LayoutGrid className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("sample")} onToggle={() => setOpenSettings((current) => current.includes("sample") ? current.filter((id) => id !== "sample") : [...current, "sample"])}>
               <p className="text-sm">
                 {sampleComplete
                   ? "On — the complete sample floor is on your shelf."
@@ -1275,7 +1275,10 @@ export function House() {
                 ) : null}
               </div>
             </SettingFold>
-            <SettingFold title="Remove data" open={openSettings.includes("remove")} onToggle={() => setOpenSettings((current) => current.includes("remove") ? current.filter((id) => id !== "remove") : [...current, "remove"])}>
+            <SettingFold title="Security" icon={<ShieldCheck className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("security")} onToggle={() => setOpenSettings((current) => current.includes("security") ? current.filter((id) => id !== "security") : [...current, "security"])}>
+              <FingerprintControl />
+            </SettingFold>
+            <SettingFold title="Remove data" icon={<Trash2 className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("remove")} onToggle={() => setOpenSettings((current) => current.includes("remove") ? current.filter((id) => id !== "remove") : [...current, "remove"])}>
               <p className="mb-3 text-xs leading-relaxed text-muted">Choose what to take off the shelf. Nothing is removed until you confirm.</p>
               <div className="space-y-1">
                 {wipeRows.map((row) => {
@@ -1310,12 +1313,10 @@ export function House() {
               </button>
             </SettingFold>
           </div>
-          <div className="mt-6">
-            <UserButton />
+          <div className="mt-2 space-y-2">
+            <AccountCard />
+            <SignOutCard />
           </div>
-          <button type="button" className="press mt-4 h-11 rounded-full border border-line px-4 text-sm" onClick={() => setSettings(false)}>
-            Close
-          </button>
         </Overlay>
       ) : null}
 
@@ -1690,14 +1691,15 @@ function Summary({
   );
 }
 
-function SettingFold({ title, open, onToggle, children }: { title: string; open: boolean; onToggle: () => void; children: ReactNode }) {
+function SettingFold({ title, icon, open, onToggle, children }: { title: string; icon: ReactNode; open: boolean; onToggle: () => void; children: ReactNode }) {
   return (
-    <section className="rounded-2xl border border-line">
-      <button type="button" aria-expanded={open} onClick={onToggle} className="press flex w-full items-center gap-2 px-4 py-3 text-left">
+    <section className="rounded-2xl border border-line bg-panel">
+      <button type="button" aria-expanded={open} onClick={onToggle} className="press flex w-full items-center gap-3 px-4 py-3.5 text-left">
+        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent">{icon}</span>
+        <span className="min-w-0 flex-1 text-[15px] font-medium">{title}</span>
         <ChevronDown className={`size-4 shrink-0 text-muted transition-transform ${open ? "" : "-rotate-90"}`} strokeWidth={1.75} />
-        <span className="text-sm font-medium">{title}</span>
       </button>
-      {open ? <div className="px-3 pb-3">{children}</div> : null}
+      {open ? <div className="px-4 pb-4">{children}</div> : null}
     </section>
   );
 }

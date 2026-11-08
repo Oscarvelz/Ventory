@@ -1,6 +1,9 @@
-// Replaces @/lib/auth/gates for the static app: the same identity chip + "Sign out" at the foot of Settings, with the
-// sync state on one quiet line and "Sign in again" when a kept session has ended.
+// Replaces @/lib/auth/gates for the static app. Settings' account furniture (1.0.11, Oscar's layout):
+// the account is its own card (identity + the sync state on one quiet line, "Sign in again" when a kept
+// session has ended), the fingerprint control lives inside the Security fold, and Sign out is its own
+// card at the very bottom — nothing loose under the folds.
 import { useEffect, useState } from "react";
+import { LogOut } from "lucide-react";
 import { askSignInAgain, lastUser, onUser, sessionGone, signOutEverywhereLocal, type VentoryUser } from "./cloud";
 import { disableLock, enableLock, lockCredential, lockSupported } from "./lock";
 import { forgetDevice, lastSynced, lastSyncError, pendingCount, syncNow } from "./store";
@@ -36,21 +39,11 @@ function useSyncLine() {
   return at ? `Synced ${clock(at)}` : "Syncing";
 }
 
-export function UserButton() {
+/** The account card: who is signed in on this device, and whether the floor is synced. */
+export function AccountCard() {
   const user = useVentoryUser();
   const line = useSyncLine();
   const [gone, setGone] = useState(sessionGone);
-  const [signingOut, setSigningOut] = useState(false);
-  const [warn, setWarn] = useState("");
-  // Fingerprint lock (1.0.10): the same control Faro keeps with the account — on/off for this account on
-  // this device; turning it on first asks the phone to prove the fingerprint works.
-  const [canLock, setCanLock] = useState(false);
-  const [locked, setLocked] = useState(false);
-  const [lockMsg, setLockMsg] = useState("");
-  useEffect(() => {
-    void lockSupported().then(setCanLock);
-    if (user) setLocked(Boolean(lockCredential(user.id)));
-  }, [user]);
   useEffect(() => {
     const on = () => setGone(sessionGone());
     window.addEventListener("ventory-session", on);
@@ -58,6 +51,78 @@ export function UserButton() {
   }, []);
   if (!user) return null;
   const label = user.name || user.email || "Account";
+  return (
+    <section className="rounded-2xl border border-line bg-panel px-4 py-3.5">
+      <div className="flex items-center gap-3">
+        <span className="grid size-10 shrink-0 place-items-center rounded-full bg-accent-soft text-base font-semibold text-accent">{label.charAt(0).toUpperCase()}</span>
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium">{label}</span>
+          <span className="block truncate text-xs text-muted">{user.email}</span>
+        </span>
+      </div>
+      <p className="mt-2.5 text-xs text-muted">{line}</p>
+      {gone ? (
+        <button type="button" className="press mt-2.5 h-11 rounded-full border border-line px-4 text-sm" onClick={askSignInAgain}>
+          Sign in again
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+/** The fingerprint control, for the Security fold: on/off for this account on this device;
+ *  turning it on first asks the phone to prove the fingerprint works. */
+export function FingerprintControl() {
+  const user = useVentoryUser();
+  const [canLock, setCanLock] = useState(false);
+  const [locked, setLocked] = useState(false);
+  const [lockMsg, setLockMsg] = useState("");
+  useEffect(() => {
+    void lockSupported().then(setCanLock);
+    if (user) setLocked(Boolean(lockCredential(user.id)));
+  }, [user]);
+  if (!user) return null;
+  return (
+    <div className="grid gap-1">
+      <span className="text-sm font-medium">Fingerprint unlock</span>
+      <span className="text-xs leading-relaxed text-muted">
+        {canLock
+          ? "Asks for your fingerprint or face when Ventory opens on this device. Coming back within a few minutes while you work won't ask again. Works offline; nothing leaves the phone."
+          : "This device has no fingerprint or screen lock available."}
+      </span>
+      {canLock ? (
+        <button
+          type="button"
+          className="press mt-1.5 h-11 justify-self-start rounded-full border border-line px-4 text-sm"
+          onClick={async () => {
+            setLockMsg("");
+            if (locked) {
+              disableLock(user.id);
+              setLocked(false);
+              return;
+            }
+            try {
+              setLocked(await enableLock(user.id, user.email));
+            } catch {
+              setLockMsg("Could not turn it on.");
+            }
+          }}
+        >
+          {locked ? "Turn off fingerprint unlock" : "Turn on fingerprint unlock"}
+        </button>
+      ) : null}
+      {lockMsg ? <span className="text-xs text-danger">{lockMsg}</span> : null}
+    </div>
+  );
+}
+
+/** Sign out, in its own card at the very bottom of Settings. Unsynced changes still get their
+ *  honest warning: the first tap says what would be left behind, the second confirms. */
+export function SignOutCard() {
+  const user = useVentoryUser();
+  const [signingOut, setSigningOut] = useState(false);
+  const [warn, setWarn] = useState("");
+  if (!user) return null;
 
   async function out() {
     if (!user) return;
@@ -78,56 +143,14 @@ export function UserButton() {
   }
 
   return (
-    <div className="grid gap-2">
-      <div className="flex items-center gap-2">
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-black/10 text-sm font-medium dark:bg-white/20">{label.charAt(0).toUpperCase()}</span>
-        <span className="min-w-0 text-sm font-medium">{label}</span>
-        <button
-          type="button"
-          disabled={signingOut}
-          onClick={() => void out()}
-          className="cursor-pointer text-sm underline-offset-4 opacity-70 hover:underline disabled:cursor-wait disabled:no-underline"
-        >
-          {signingOut ? "Signing out…" : "Sign out"}
-        </button>
-      </div>
-      <p className="text-xs text-muted">{line}</p>
-      <div className="grid gap-1 border-t border-line pt-3">
-        <span className="text-sm font-medium">Fingerprint unlock</span>
-        <span className="text-xs text-muted">
-          {canLock
-            ? "Asks for your fingerprint or face when Ventory opens on this device. Coming back within a few minutes while you work won't ask again. Works offline; nothing leaves the phone."
-            : "This device has no fingerprint or screen lock available."}
+    <section className="rounded-2xl border border-line bg-panel">
+      <button type="button" disabled={signingOut} onClick={() => void out()} className="press flex w-full items-center gap-3 px-4 py-3.5 text-left disabled:cursor-wait">
+        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-danger-soft text-danger">
+          <LogOut className="size-[18px]" strokeWidth={1.75} />
         </span>
-        {canLock ? (
-          <button
-            type="button"
-            className="press mt-1 h-11 justify-self-start rounded-full border border-line px-4 text-sm"
-            onClick={async () => {
-              setLockMsg("");
-              if (locked) {
-                disableLock(user.id);
-                setLocked(false);
-                return;
-              }
-              try {
-                setLocked(await enableLock(user.id, user.email));
-              } catch {
-                setLockMsg("Could not turn it on.");
-              }
-            }}
-          >
-            {locked ? "Turn off fingerprint unlock" : "Turn on fingerprint unlock"}
-          </button>
-        ) : null}
-        {lockMsg ? <span className="text-xs text-danger">{lockMsg}</span> : null}
-      </div>
-      {gone ? (
-        <button type="button" className="press h-11 justify-self-start rounded-full border border-line px-4 text-sm" onClick={askSignInAgain}>
-          Sign in again
-        </button>
-      ) : null}
-      {warn ? <p className="text-xs text-danger">{warn}</p> : null}
-    </div>
+        <span className="text-sm font-medium text-danger">{signingOut ? "Signing out…" : "Sign out"}</span>
+      </button>
+      {warn ? <p className="px-4 pb-3.5 text-xs text-danger">{warn}</p> : null}
+    </section>
   );
 }
