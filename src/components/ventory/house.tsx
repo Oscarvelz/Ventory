@@ -21,18 +21,12 @@ type Lens = "hand" | "incoming" | "revenue" | "profit";
 type Layout = "card" | "medium" | "list" | "g2" | "g3" | "g4";
 type Face = "large" | "medium" | "list" | "grid";
 
-let themeFlipTimer: number | undefined;
-
 function applyTheme(theme: ThemeId) {
   const root = document.documentElement;
-  // 1.0.3: a real change of theme flips on one clock — park .theming on <html>
-  // for the length of the shared 180ms transition (see styles.css), then take
-  // it off so nothing else inherits a color lag. Reduced motion never arms it.
-  if (root.dataset.theme && root.dataset.theme !== theme && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    root.classList.add("theming");
-    window.clearTimeout(themeFlipTimer);
-    themeFlipTimer = window.setTimeout(() => root.classList.remove("theming"), 240);
-  }
+  // 1.0.4: nothing to arm or time here — styles.css carries no color
+  // transition anymore, so setting data-theme swaps the palette in one frame.
+  // (1.0.3 parked a .theming class for 240ms to run a blanket 180ms fade;
+  // that fade WAS the lag the flip was reported for.)
   root.dataset.theme = theme;
   const color = THEMES.find((item) => item.id === theme)?.color;
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", color ?? "#121410");
