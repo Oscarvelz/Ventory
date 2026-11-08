@@ -113,11 +113,28 @@ function bottomColor(): string | null {
   return rgb(b) ? b : null;
 }
 
+let barsNow: (() => void) | null = null;
+
+/**
+ * Send the bar colours to the shell IMMEDIATELY (1.0.5). applyTheme() calls this
+ * synchronously inside the flip: before, the only path to the shell was the
+ * 160ms-debounced MutationObserver below, so the content swapped in one frame
+ * (1.0.4) while the shell's status strip and bottom background kept the old
+ * theme for at least 160ms and caught up late. The shell paints what it is sent
+ * the moment setBars lands — the wait was ours, here, not the shell's.
+ */
+export function syncBarsNow() {
+  barsNow?.();
+}
+
 function installBars(n: VentoryNativeBridge) {
   let last = "";
   let queued = 0;
   const apply = () => {
-    queued = 0;
+    if (queued) {
+      window.clearTimeout(queued);
+      queued = 0;
+    }
     const meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
     const top = meta?.content || "#121410";
     const bottom = bottomColor() || top;
@@ -133,10 +150,17 @@ function installBars(n: VentoryNativeBridge) {
       /* ignore */
     }
   };
+  barsNow = apply;
   const soon = () => {
     if (!queued) queued = window.setTimeout(apply, 160);
   };
-  new MutationObserver(soon).observe(document.documentElement, { attributes: true, childList: true, subtree: true, attributeFilter: ["content", "data-theme", "class", "style"] });
+  new MutationObserver((muts) => {
+    // A data-theme change is a flip: send the new colours in this same turn.
+    // Anything else (class/style churn, scrolling content) keeps the debounce,
+    // so the bridge is not spammed while the page moves.
+    if (muts.some((m) => m.type === "attributes" && m.attributeName === "data-theme" && m.target === document.documentElement)) apply();
+    else soon();
+  }).observe(document.documentElement, { attributes: true, childList: true, subtree: true, attributeFilter: ["content", "data-theme", "class", "style"] });
   addEventListener("scroll", soon, { passive: true });
   addEventListener("resize", soon);
   document.addEventListener("visibilitychange", soon);

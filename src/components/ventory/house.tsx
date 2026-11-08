@@ -8,6 +8,7 @@ import { parseFloorNotes } from "@/lib/ventory/paste";
 import { convertToUs } from "@/lib/ventory/sizes";
 import { addSamples, clearSelected, createCheckpoint, deleteAd, deletePiece, importPieces, loadFloor, replaceFloor, saveAd, saveAds, saveMark, savePiece, saveTheme } from "@/lib/ventory/server";
 import { asTheme, isLightTheme, LIGHT_THEMES, THEMES, type ThemeId } from "@/lib/ventory/themes";
+import { syncBarsNow } from "@/spa/native";
 import { Wordmark } from "./mark";
 import { useScrollBars } from "./use-scroll-bars";
 import { RippleButton, rippleNav } from "./ripple";
@@ -30,6 +31,12 @@ function applyTheme(theme: ThemeId) {
   root.dataset.theme = theme;
   const color = THEMES.find((item) => item.id === theme)?.color;
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", color ?? "#121410");
+  // 1.0.5: tell the Android shell NOW, in this same task — data-theme is set and
+  // the meta already carries the new colour, so the sampled bar colours are the
+  // new theme's. Waiting for the debounced observer (the pre-1.0.5 path) left
+  // the status strip and the bottom background in the old theme ~160ms after
+  // the content had already flipped. A no-op outside the shell.
+  syncBarsNow();
   try {
     localStorage.setItem("ventory-theme", theme);
   } catch {
