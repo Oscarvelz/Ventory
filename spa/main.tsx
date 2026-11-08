@@ -1,10 +1,11 @@
-import { StrictMode, useEffect, useState } from "react";
+import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "@/styles.css";
 import { House } from "@/components/ventory/house";
-import { CLOUD_READY, emitUser, hasStoredSession, keepSignedIn, lastUser, recoverSession, rememberUser, requestPersistentStorage, setSessionGone, supabase } from "@/spa/cloud";
+import { CLOUD_READY, emitUser, hasStoredSession, keepSignedIn, lastUser, recoverSession, rememberUser, requestPersistentStorage, setSessionGone, signOutEverywhereLocal, supabase } from "@/spa/cloud";
 import { useVentoryUser } from "@/spa/gates";
-import { Landing } from "@/spa/login";
+import { awayWasInternal, graceForThisTrip, LEAVE_GRACE_MS, lockCredential, markSeen, quietResume, stampUpdateReload, unlock } from "@/spa/lock";
+import { Landing, Locked } from "@/spa/login";
 import { openFloor, startAutoSync, syncNow } from "@/spa/store";
 import { startNative } from "@/spa/native";
 
@@ -85,6 +86,87 @@ function Gate() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  /* Fingerprint gate (1.0.10, lock.ts — the fleet's pattern from Faro and Brizna): a fresh open asks when
+   * the lock is on for this account on this device; coming back asks only after a real trip away (graceForThisTrip),
+   * and Ventory's own trips out — the prompt itself, the photo picker, a backup download — never count. */
+  const uid = user?.id;
+  const [open, setOpen] = useState(() => {
+    const u = lastUser();
+    return !(u && lockCredential(u.id));
+  });
+  const [failed, setFailed] = useState(false);
+  const openRef = useRef(open);
+  const hiddenAt = useRef(0);
+  const graceRef = useRef(LEAVE_GRACE_MS);
+  const tried = useRef("");
+  useEffect(() => {
+    if (!uid) {
+      openRef.current = false;
+      setOpen(false);
+      return;
+    }
+    const locked = !!lockCredential(uid) && !quietResume(uid);
+    openRef.current = !locked;
+    setOpen(!locked);
+    setFailed(false);
+    if (!locked) markSeen(uid);
+    hiddenAt.current = 0;
+    const onVis = () => {
+      if (document.visibilityState === "hidden") {
+        // Only a hide while the floor is open counts; the fingerprint prompt itself hides the page while locked.
+        if (openRef.current) {
+          markSeen(uid);
+          hiddenAt.current = Date.now();
+          graceRef.current = graceForThisTrip();
+        }
+        return;
+      }
+      if (awayWasInternal()) {
+        hiddenAt.current = 0;
+        if (openRef.current) markSeen(uid);
+        return;
+      }
+      const left = hiddenAt.current;
+      hiddenAt.current = 0;
+      if (left && lockCredential(uid) && Date.now() - left > graceRef.current) {
+        openRef.current = false;
+        tried.current = "";
+        setFailed(false);
+        setOpen(false);
+      } else if (openRef.current) markSeen(uid);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [uid]);
+  // While the floor is open and unlocked, keep stamping "seen" so an update reload can resume quietly.
+  useEffect(() => {
+    if (!uid || !open) return;
+    markSeen(uid);
+    const t = window.setInterval(() => {
+      if (document.visibilityState === "visible") markSeen(uid);
+    }, 20_000);
+    return () => window.clearInterval(t);
+  }, [uid, open]);
+  const tryUnlock = async () => {
+    if (!uid) return;
+    setFailed(false);
+    try {
+      if (await unlock(uid)) {
+        markSeen(uid);
+        openRef.current = true;
+        setOpen(true);
+      } else setFailed(true);
+    } catch {
+      setFailed(true);
+    }
+  };
+  useEffect(() => {
+    if (uid && booted && !open && lockCredential(uid) && tried.current !== uid) {
+      tried.current = uid;
+      void tryUnlock();
+    }
+  });
+
   if (!CLOUD_READY) {
     if (/[?&]gate=(in|reset)/.test(location.search)) return <Landing recovery={/gate=reset/.test(location.search)} />;
     return <Floor uid="local" />;
@@ -92,6 +174,7 @@ function Gate() {
   if (!booted) return <Boot />;
   if (recovery) return <Landing recovery />;
   if (!user || expired) return <Landing note={expired ? "Your session ended. Sign in again to sync; your floor is still on this device." : undefined} />;
+  if (!open) return <Locked failed={failed} onOpen={() => void tryUnlock()} onSignOut={() => void signOutEverywhereLocal()} />;
   return <Floor uid={user.id} />;
 }
 
@@ -116,7 +199,11 @@ if ("serviceWorker" in navigator && location.protocol === "https:") {
           const nw = reg.installing;
           nw?.addEventListener("statechange", () => {
             // A new release is in: reload once, unless a sheet is open (then it waits for the next launch).
-            if (nw.state === "activated" && hadWorker && !document.querySelector(".veil-in")) location.reload();
+            // The stamp lets the fingerprint gate resume quietly: an update reload is not a fresh open.
+            if (nw.state === "activated" && hadWorker && !document.querySelector(".veil-in")) {
+              stampUpdateReload();
+              location.reload();
+            }
           });
         });
         setInterval(() => void reg.update(), 60 * 60 * 1000);

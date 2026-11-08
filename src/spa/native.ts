@@ -7,7 +7,8 @@
  *   shade closes it; with nothing open the app hears atRoot() and shows "Press back again to close Ventory".
  * - Status/navigation bar colours follow the theme (meta theme-color at the top, the page colour at the bottom).
  * - Downloads (the backup JSON): the blob is handed to the app and saved in Downloads/Ventory.
- * - nativeAuth(): the phone's BiometricPrompt, available for a future lock (unused today).
+ * - nativeAuth(): the phone's BiometricPrompt — since 1.0.10 it powers the fingerprint lock (spa/lock.ts,
+ *   the fleet's pattern from Faro and Brizna): Settings turns it on per account, the gate in spa/main.tsx asks.
  */
 
 export type VentoryNativeBridge = {

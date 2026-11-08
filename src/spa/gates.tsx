@@ -2,6 +2,7 @@
 // sync state on one quiet line and "Sign in again" when a kept session has ended.
 import { useEffect, useState } from "react";
 import { askSignInAgain, lastUser, onUser, sessionGone, signOutEverywhereLocal, type VentoryUser } from "./cloud";
+import { disableLock, enableLock, lockCredential, lockSupported } from "./lock";
 import { forgetDevice, lastSynced, lastSyncError, pendingCount, syncNow } from "./store";
 
 export function useVentoryUser(): VentoryUser | null {
@@ -41,6 +42,15 @@ export function UserButton() {
   const [gone, setGone] = useState(sessionGone);
   const [signingOut, setSigningOut] = useState(false);
   const [warn, setWarn] = useState("");
+  // Fingerprint lock (1.0.10): the same control Faro keeps with the account — on/off for this account on
+  // this device; turning it on first asks the phone to prove the fingerprint works.
+  const [canLock, setCanLock] = useState(false);
+  const [locked, setLocked] = useState(false);
+  const [lockMsg, setLockMsg] = useState("");
+  useEffect(() => {
+    void lockSupported().then(setCanLock);
+    if (user) setLocked(Boolean(lockCredential(user.id)));
+  }, [user]);
   useEffect(() => {
     const on = () => setGone(sessionGone());
     window.addEventListener("ventory-session", on);
@@ -82,6 +92,36 @@ export function UserButton() {
         </button>
       </div>
       <p className="text-xs text-muted">{line}</p>
+      <div className="grid gap-1 border-t border-line pt-3">
+        <span className="text-sm font-medium">Fingerprint unlock</span>
+        <span className="text-xs text-muted">
+          {canLock
+            ? "Asks for your fingerprint or face when Ventory opens on this device. Coming back within a few minutes while you work won't ask again. Works offline; nothing leaves the phone."
+            : "This device has no fingerprint or screen lock available."}
+        </span>
+        {canLock ? (
+          <button
+            type="button"
+            className="press mt-1 h-11 justify-self-start rounded-full border border-line px-4 text-sm"
+            onClick={async () => {
+              setLockMsg("");
+              if (locked) {
+                disableLock(user.id);
+                setLocked(false);
+                return;
+              }
+              try {
+                setLocked(await enableLock(user.id, user.email));
+              } catch {
+                setLockMsg("Could not turn it on.");
+              }
+            }}
+          >
+            {locked ? "Turn off fingerprint unlock" : "Turn on fingerprint unlock"}
+          </button>
+        ) : null}
+        {lockMsg ? <span className="text-xs text-danger">{lockMsg}</span> : null}
+      </div>
       {gone ? (
         <button type="button" className="press h-11 justify-self-start rounded-full border border-line px-4 text-sm" onClick={askSignInAgain}>
           Sign in again

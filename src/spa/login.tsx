@@ -1,7 +1,7 @@
 // Ventory's own landing (src/components/ventory/landing.tsx), same look, signed in through Supabase instead of the
 // Grok server. Adds what a cloud account needs: "Forgot password" and the new-password step from the email link.
 import { useState, type FormEvent } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Fingerprint } from "lucide-react";
 import { Wordmark } from "@/components/ventory/mark";
 import { emitUser, keepSignedIn, rememberUser, setKeepSignedIn, supabase } from "./cloud";
 
@@ -185,5 +185,37 @@ function AccountForm({ note, recovery }: { note?: string; recovery?: boolean }) 
         </button>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The fingerprint gate (1.0.10), in the landing's own clothes: the prompt itself opens on its own
+ * (the gate asks once when the screen appears); this button is the way back in after a cancel, and
+ * signing out is the escape hatch if the phone's biometrics ever refuse — the floor stays on this
+ * device and the lock stays on for the account, exactly like Faro.
+ */
+export function Locked({ failed, onOpen, onSignOut }: { failed: boolean; onOpen: () => void; onSignOut: () => void }) {
+  return (
+    <main className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-10">
+      <p className="text-xs font-medium tracking-wide text-muted uppercase">Floor book</p>
+      <h1 className="mt-8">
+        <Wordmark className="text-5xl" />
+      </h1>
+      <p className="mt-4 max-w-xl text-lg text-muted">Ventory is locked.</p>
+      <div className="mt-8 w-full max-w-sm">
+        <button
+          type="button"
+          onClick={onOpen}
+          className="flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-accent text-sm font-medium text-accent-ink"
+        >
+          <Fingerprint className="size-5" aria-hidden />
+          {failed ? "Try again" : "Unlock with fingerprint"}
+        </button>
+        {failed ? <p className="mt-3 text-sm text-danger">That didn't open it. Try again, or use your password.</p> : null}
+        <button type="button" onClick={onSignOut} className="mt-4 cursor-pointer text-sm text-muted underline-offset-4 hover:underline">
+          Sign out and use your password instead
+        </button>
+      </div>
+    </main>
   );
 }
