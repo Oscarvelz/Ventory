@@ -909,14 +909,14 @@ export function House() {
                 nav={id}
                 aria-pressed={desk === id}
                 onClick={() => setDesk(id)}
-                className={`press h-12 rounded-2xl border text-sm font-medium ${desk === id ? "border-line bg-panel text-ink" : "border-line/70 text-muted"}`}
+                className={`press h-11 rounded-2xl border text-sm font-medium ${desk === id ? "border-line bg-panel text-ink" : "border-line/70 text-muted"}`}
               >
                 {label}
               </RippleButton>
             ))}
           </div>
           {desk === "stats" ? (
-            <div className="mt-4 space-y-3">
+            <div className="piece mt-4 space-y-3">
               <StatFold
                 title="Numbers"
                 line={brief.lines.numbers}
@@ -1413,11 +1413,11 @@ function shortMoney(cents: number) {
 
 function SalesBoard({ title, rows }: { title: string; rows: SaleLine[] }) {
   return (
-    <div className="framed mt-4 rounded-3xl bg-panel p-5">
+    <div className="framed mt-4 rounded-3xl bg-panel p-4">
       <p className="text-xs font-medium tracking-wide text-faint uppercase">{title}</p>
       {rows.length === 0 ? <p className="mt-3 text-sm text-muted">No sales to compare yet.</p> : (
         <>
-          <div className="mt-4 grid grid-cols-[1fr_2.75rem_4.75rem_4.75rem] gap-2 border-b border-line pb-2 text-[10px] font-medium tracking-widest text-faint uppercase">
+          <div className="mt-3 grid grid-cols-[1fr_2.75rem_4.75rem_4.75rem] gap-2 border-b border-line pb-2 text-[10px] font-medium tracking-widest text-faint uppercase">
             <span>Product</span>
             <span className="text-right">Sold</span>
             <span className="text-right">In</span>
@@ -1425,7 +1425,7 @@ function SalesBoard({ title, rows }: { title: string; rows: SaleLine[] }) {
           </div>
           <ul className="divide-y divide-line">
             {rows.map((row, index) => (
-              <li key={row.name} className="row-in grid grid-cols-[1fr_2.75rem_4.75rem_4.75rem] items-baseline gap-2 py-2.5 text-sm" style={{ animationDelay: `${Math.min(index * 45, 270)}ms` }}>
+              <li key={row.name} className="row-in grid grid-cols-[1fr_2.75rem_4.75rem_4.75rem] items-baseline gap-2 py-2 text-sm" style={{ animationDelay: `${Math.min(index * 45, 270)}ms` }}>
                 <span className="min-w-0">
                   <span className="block truncate">{row.name}</span>
                   {row.unpriced ? <span className="block text-[10px] text-muted">{row.unpriced} no price</span> : null}
@@ -1449,13 +1449,13 @@ function Ring({ title, parts }: { title: string; parts: { label: string; value: 
   const turn = 2 * Math.PI * radius;
   let walked = 0;
   return (
-    <div className="rounded-3xl border border-line bg-panel p-5">
+    <div className="rounded-3xl border border-line bg-panel p-4">
       <p className="text-xs font-medium tracking-wide text-faint uppercase">{title}</p>
       {total === 0 ? <p className="mt-3 text-sm text-muted">Nothing to measure yet.</p> : (
-        <div className="mt-4 flex items-center gap-5">
-          <div className="relative size-28 shrink-0">
-            <svg viewBox="0 0 120 120" className="size-28 -rotate-90">
-              <circle cx="60" cy="60" r={radius} fill="none" stroke="var(--v-panel-2)" strokeWidth="14" />
+        <div className="mt-3 flex items-center gap-4">
+          <div className="relative size-24 shrink-0">
+            <svg viewBox="0 0 120 120" className="size-24 -rotate-90">
+              <circle cx="60" cy="60" r={radius} fill="none" stroke="var(--v-panel-2)" strokeWidth="12" />
               {shown.map((part) => {
                 const gap = shown.length > 1 ? 3 : 0;
                 const length = Math.max(1, (part.value / total) * turn - gap);
@@ -1472,7 +1472,7 @@ function Ring({ title, parts }: { title: string; parts: { label: string; value: 
                     r={radius}
                     fill="none"
                     stroke={part.color}
-                    strokeWidth="14"
+                    strokeWidth="12"
                     strokeDasharray={`${length} ${turn - length}`}
                     strokeDashoffset={-walked}
                     className="ring-arc"
@@ -1484,10 +1484,10 @@ function Ring({ title, parts }: { title: string; parts: { label: string; value: 
               })}
             </svg>
             <div className="absolute inset-0 grid place-items-center">
-              <p className="font-display text-2xl tabular-nums">{total}</p>
+              <p className="font-display text-xl tabular-nums">{total}</p>
             </div>
           </div>
-          <ul className="min-w-0 flex-1 space-y-2">
+          <ul className="min-w-0 flex-1 space-y-1.5">
             {shown.map((part) => (
               <li key={part.label} className="flex items-center justify-between gap-2 text-sm">
                 <span className="flex min-w-0 items-center gap-2">
@@ -1508,13 +1508,13 @@ function Columns({ title, rows, empty }: { title: string; rows: { label: string;
   const shown = rows.filter((row) => row.value > 0);
   const peak = Math.max(1, ...shown.map((row) => row.value));
   return (
-    <div className="rounded-3xl border border-line bg-panel p-5">
+    <div className="rounded-3xl border border-line bg-panel p-4">
       <p className="text-xs font-medium tracking-wide text-faint uppercase">{title}</p>
       {shown.length === 0 ? <p className="mt-3 text-sm text-muted">{empty ?? "Nothing to measure yet."}</p> : (
-        <ul className="mt-4 space-y-3">
-          {shown.map((row) => (
-            <li key={row.label} className="flex items-center gap-3 text-sm">
-              <span className="w-28 min-w-0 shrink-0 truncate text-muted">{row.label}</span>
+        <ul className="mt-3 space-y-2.5">
+          {shown.map((row, index) => (
+            <li key={row.label} className="row-in flex items-center gap-3 text-sm" style={{ animationDelay: `${Math.min(index * 45, 270)}ms` }}>
+              <span className="w-24 min-w-0 shrink-0 truncate text-muted">{row.label}</span>
               <span className="h-2 flex-1 overflow-hidden rounded-full bg-panel-2">
                 <span className="bar-fill block h-full rounded-full bg-accent" style={{ width: `${Math.max(4, Math.round((row.value / peak) * 100))}%` }} />
               </span>
@@ -1717,14 +1717,25 @@ function SettingFold({ title, icon, open, onToggle, children }: { title: string;
   );
 }
 
+/* Statistics desk, designer's pass (1.0.13): the desk read oversized, so its
+   scale was refined in place — cards p-5 → p-4, the ring 112 → 96px with a
+   slimmer 12-unit stroke (its dash geometry is untouched: radius 42, turn
+   264, so ring-grow settles on the same arcs), lead figures 2.6rem → 4xl,
+   Exact tiles 2xl → xl, the Performance stage h-40/h-24 → h-36/h-20, fold
+   heads text-lg → text-base. Nothing moved house: same rounded-3xl cards,
+   same tones, same words, same numbers — only quieter. Arrival completes
+   Faro's register where it was missing: the desk itself rises like a card
+   (.piece), an opened fold's body rises (.row-in), and the Columns and Ads
+   rows rise with the same stagger SalesBoard rows already used; bars, columns
+   and ring arcs kept their 1.0.6 grows and nothing new counts or fades. */
 function StatFold({ title, open, pinned, onToggle, onPin, line, children }: { title: string; open: boolean; pinned: boolean; onToggle: () => void; onPin: () => void; line?: string; children: ReactNode }) {
   return (
     <section className="rounded-3xl border border-line bg-panel">
       <div className="flex items-center gap-1 pr-2">
-        <button type="button" aria-expanded={open} onClick={onToggle} className="press flex min-w-0 flex-1 items-center gap-2 px-4 py-3 text-left">
+        <button type="button" aria-expanded={open} onClick={onToggle} className="press flex min-w-0 flex-1 items-center gap-2 px-4 py-2.5 text-left">
           <ChevronDown className={`size-4 shrink-0 self-center text-muted transition-transform ${open ? "" : "-rotate-90"}`} strokeWidth={1.75} />
           <span className="min-w-0 flex-1">
-            <span className="block truncate font-display text-lg leading-tight">{title}</span>
+            <span className="block truncate font-display text-base leading-tight">{title}</span>
             {!open && line ? <span className="mt-0.5 line-clamp-2 block text-xs leading-snug text-muted">{line}</span> : null}
           </span>
         </button>
@@ -1732,16 +1743,16 @@ function StatFold({ title, open, pinned, onToggle, onPin, line, children }: { ti
           <Pin className="size-4" strokeWidth={1.75} fill={pinned ? "currentColor" : "none"} />
         </button>
       </div>
-      {open ? <div className="px-4 pb-4">{line ? <p className="mb-3 text-sm leading-relaxed text-muted">{line}</p> : null}{children}</div> : null}
+      {open ? <div className="row-in px-4 pb-3">{line ? <p className="mb-3 text-sm leading-relaxed text-muted">{line}</p> : null}{children}</div> : null}
     </section>
   );
 }
 
 function Exact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-line bg-canvas px-3 py-3">
+    <div className="rounded-2xl border border-line bg-canvas px-3 py-2.5">
       <p className="text-[10px] font-medium tracking-widest text-faint uppercase">{label}</p>
-      <p className="mt-1.5 font-display text-2xl leading-none tabular-nums">{value}</p>
+      <p className="mt-1 font-display text-xl leading-none tabular-nums">{value}</p>
     </div>
   );
 }
@@ -1793,9 +1804,9 @@ function useCountUp(cents: number | undefined, finalText: string) {
 function Figure({ label, value, negative, cents }: { label: string; value: string; negative?: boolean; cents?: number }) {
   const shown = useCountUp(cents, value);
   return (
-    <div className="col-span-2 rounded-2xl border border-line bg-canvas px-4 py-4">
+    <div className="col-span-2 rounded-2xl border border-line bg-canvas px-4 py-3">
       <p className="text-[10px] font-medium tracking-widest text-faint uppercase">{label}</p>
-      <p className={`mt-2 font-display text-[2.6rem] leading-none tracking-tight tabular-nums ${negative ? "text-danger" : ""}`}>{shown}</p>
+      <p className={`mt-1.5 font-display text-4xl leading-none tracking-tight tabular-nums ${negative ? "text-danger" : ""}`}>{shown}</p>
     </div>
   );
 }
@@ -1822,7 +1833,7 @@ function Performance({ pieces, focus }: { pieces: Piece[]; focus?: "revenue" | "
   const peak = Math.max(1, ...rows.flatMap((row) => [Math.max(0, row.revenue), Math.max(0, row.profit)]));
   const shown = (row: { revenue: number; profit: number }) => (focus === "revenue" ? [["In", row.revenue]] : focus === "profit" ? [["Left", row.profit]] : [["In", row.revenue], ["Left", row.profit]]) as [string, number][];
   return (
-    <div className="rounded-3xl border border-line bg-panel p-5">
+    <div className="rounded-3xl border border-line bg-panel p-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-medium tracking-wide text-faint uppercase">{focus === "revenue" ? "Revenue" : focus === "profit" ? "Profit" : "Performance"}</p>
         <div className="grid w-44 grid-cols-3 gap-1">
@@ -1848,14 +1859,14 @@ function Performance({ pieces, focus }: { pieces: Piece[]; focus?: "revenue" | "
             </div>
           )}
           <div className="mt-3 overflow-x-auto">
-            <div className="flex h-40 items-end gap-3" style={{ minWidth: rows.length > 5 ? rows.length * 56 : "100%" }}>
+            <div className="flex h-36 items-end gap-3" style={{ minWidth: rows.length > 5 ? rows.length * 56 : "100%" }}>
               {rows.map((row, index) => {
                 const series = shown(row);
                 const headline = series[series.length - 1]?.[1] ?? 0;
                 return (
                   <div key={row.label} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end">
                     <span className={`text-[10px] tabular-nums ${headline < 0 ? "text-danger" : "text-muted"}`}>{headline < 0 ? "−" : ""}{shortMoney(headline)}</span>
-                    <div className="mt-1 flex h-24 w-full items-end justify-center gap-1">
+                    <div className="mt-1 flex h-20 w-full items-end justify-center gap-1">
                       {series.map(([label, amount]) => (
                         <div key={label} className="flex h-full w-4 flex-col justify-end overflow-hidden rounded-md bg-panel-2">
                           <div
@@ -2159,17 +2170,17 @@ function AdBoard({ ads, pieces }: { ads: Ad[]; pieces: Piece[] }) {
   const days = ads.map(adSpan).filter((value): value is number => value != null);
   const average = days.length ? Math.round(days.reduce((sum, value) => sum + value, 0) / days.length) : null;
   return (
-    <div className="rounded-3xl border border-line bg-panel p-5">
+    <div className="rounded-3xl border border-line bg-panel p-4">
       <p className="text-xs font-medium tracking-wide text-faint uppercase">Ads</p>
       {ads.length === 0 ? <p className="mt-3 text-sm text-muted">No promotion logged yet. Record it from History.</p> : (
         <>
-          <p className="mt-2 font-display text-4xl tabular-nums">{money(spent)}</p>
+          <p className="mt-2 font-display text-3xl tabular-nums">{money(spent)}</p>
           <p className="mt-1 text-sm text-muted">{worked} worked · {missed} did not · {average == null ? "no dates" : `${average}d average`}</p>
-          <ul className="mt-4 space-y-3">
-            {ads.map((ad) => {
+          <ul className="mt-3 space-y-2.5">
+            {ads.map((ad, index) => {
               const span = adSpan(ad);
               return (
-                <li key={ad.id} className="flex items-baseline justify-between gap-3 text-sm">
+                <li key={ad.id} className="row-in flex items-baseline justify-between gap-3 text-sm" style={{ animationDelay: `${Math.min(index * 45, 270)}ms` }}>
                   <span className="min-w-0">
                     <span className="block truncate">{ad.product}</span>
                     <span className="block text-xs text-muted">{span == null ? "No dates" : `${span}d`} · {ad.worked === "yes" ? "Worked" : ad.worked === "no" ? "Did not" : "Running"} · {soldInWindow(ad, pieces) ? "Sale landed" : "No sale"}</span>
