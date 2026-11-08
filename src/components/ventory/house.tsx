@@ -5,9 +5,10 @@ import { daysHeld, dollarsToCents, effectiveCostCents, emptyInput, money, priceC
 import { buildAdvice } from "@/lib/ventory/advisor";
 import { AdvisorView, type AdviceFocus } from "@/components/ventory/Advisor";
 import { TrayImport, type TrayPayload } from "@/components/ventory/TrayImport";
-import { AgeColumns, Bars, Count, Delta, Gauge, Histogram, Kicker, Segmented, Spark, Split, Trend } from "@/components/ventory/charts";
+import { commas } from "@/lib/ventory/export/model";
+import { AgeColumns, Bars, Count, Delta, Gauge, Histogram, Kicker, PairBars, Segmented, Spark, Split, Trend } from "@/components/ventory/charts";
 import { ExportCenter } from "@/components/ventory/ExportCenter";
-import { ageTone, cash, compare, measure, pct, series, sizeName, TONES } from "@/lib/ventory/metrics";
+import { ageTone, cash, compare, halfSize, marginOf, measure, pct, series, sizeName, TONES } from "@/lib/ventory/metrics";
 import { convertToUs } from "@/lib/ventory/sizes";
 import { addSamples, applyTrayImport, clearSelected, createCheckpoint, deleteAd, deletePiece, importPieces, isLegacySample, loadFloor, removeSamples, replaceFloor, sampleSetSize, saveAd, saveAds, saveMark, savePiece, saveTheme } from "@/lib/ventory/server";
 import { asTheme, isLightTheme, LIGHT_THEMES, THEMES, type ThemeId } from "@/lib/ventory/themes";
@@ -83,7 +84,7 @@ function isSale(piece: Piece) {
   return piece.status === "sold" || piece.wasSold;
 }
 
-type SaleLine = { name: string; count: number; revenue: number; profit: number; unpriced: number };
+type SaleLine = { name: string; count: number; revenue: number; profit: number; unpriced: number; costedRevenue?: number; costedProfit?: number };
 
 function salesOf(pieces: Piece[]): SaleLine[] {
   const map = new Map<string, SaleLine>();
@@ -97,6 +98,10 @@ function salesOf(pieces: Piece[]): SaleLine[] {
       if (moneyIn) {
         row.revenue += moneyIn.revenue;
         row.profit += moneyIn.profit;
+        if (piece.costCents > 0) {
+          row.costedRevenue = (row.costedRevenue ?? 0) + moneyIn.revenue;
+          row.costedProfit = (row.costedProfit ?? 0) + moneyIn.profit;
+        }
       }
     }
     map.set(name, row);
@@ -449,7 +454,7 @@ export function House() {
   const picture = useMemo(() => {
     const held = pieces.filter((piece) => piece.status === "available" || piece.status === "incoming");
     const sold = pieces.filter(isSale);
-    const sizeOf = (piece: Piece) => (piece.usSize ? `US ${piece.usSize}` : piece.sizeLabel ? `${piece.sizeSystem} ${piece.sizeLabel}` : "No size");
+    const sizeOf = (piece: Piece) => (piece.usSize ? `US ${halfSize(piece.usSize)}` : piece.sizeLabel ? `${piece.sizeSystem} ${piece.sizeLabel}` : "No size");
     const holds = sold.map((piece) => daysHeld(piece.receivedOn, piece.soldOn)).filter((days): days is number => days != null);
     const sitting = held.map((piece) => daysHeld(piece.receivedOn, null)).filter((days): days is number => days != null);
     return {
@@ -464,7 +469,7 @@ export function House() {
       avgHold: holds.length ? Math.round(holds.reduce((sum, days) => sum + days, 0) / holds.length) : null,
       oldest: sitting.length ? Math.max(...sitting) : null,
       problems: pieces.filter((piece) => piece.problem).length,
-      margin: stats.revenue > 0 ? Math.round((stats.profit / stats.revenue) * 100) : null,
+      margin: (() => { const share = marginOf(pieces.filter((piece) => piece.status === "sold" || piece.wasSold)); return share == null ? null : Math.round(share * 100); })(),
     };
   }, [pieces, stats.profit, stats.revenue]);
 
@@ -1343,17 +1348,34 @@ function SalesBoard({ title, rows, bare }: { title: string; rows: SaleLine[]; ba
     <div className={bare ? "" : "framed mt-4 rounded-3xl bg-panel p-4"}>
       {bare ? null : <p className="text-xs font-medium tracking-wide text-faint uppercase">{title}</p>}
       {rows.length === 0 ? <p className={`${bare ? "" : "mt-3 "}text-sm text-muted`}>No sales to compare yet.</p> : bare ? (
-        <ul className="border-t border-line">
-          {rows.map((row, index) => (
-            <li key={row.name} className="row-in flex items-baseline justify-between gap-3 border-b border-line py-2.5 last:border-b-0" style={{ animationDelay: `${Math.min(index * 35, 350)}ms` }}>
-              <span className="min-w-0">
-                <span className="block text-sm text-ink">{row.name}</span>
-                <span className="block text-xs tabular-nums text-muted">{row.count} sold · {cash(row.revenue)} in{row.unpriced ? ` · ${row.unpriced} with no price` : ""}</span>
-              </span>
-              <span className={`shrink-0 font-display text-lg leading-none tabular-nums ${row.profit < 0 ? "text-danger" : ""}`}>{cash(row.profit)}</span>
-            </li>
-          ))}
-        </ul>
+        <>
+          <div className="mb-2 flex items-center gap-4 text-[11px] text-muted" aria-hidden>
+            <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-3 rounded-full" style={{ background: `color-mix(in srgb, var(--v-muted) 42%, var(--v-panel-2))` }} />Came in</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-3 rounded-full" style={{ background: litTone("#5f8f72") }} />Left after cost</span>
+          </div>
+          <ul className="border-t border-line">
+            {rows.map((row, index) => {
+              const peak = Math.max(1, ...rows.map((r) => r.revenue));
+              const keptShare = row.costedRevenue ? row.costedProfit! / row.costedRevenue : null;
+              const kept = keptShare == null ? 0 : Math.max(0, Math.min(1, keptShare));
+              const green = litTone("#5f8f72");
+              return (
+                <li key={row.name} className="row-in border-b border-line py-2.5 last:border-b-0" style={{ animationDelay: `${Math.min(index * 35, 350)}ms` }}>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="min-w-0 text-sm text-ink">{row.name}</span>
+                    <span className={`shrink-0 font-display text-lg leading-none tabular-nums ${row.profit < 0 ? "text-danger" : ""}`}>{cash(row.profit)}</span>
+                  </div>
+                  <span className="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-panel-2" aria-hidden>
+                    <span className="bar-fill flex h-full overflow-hidden rounded-full" style={{ width: `${Math.max(3, (row.revenue / peak) * 100)}%`, background: `color-mix(in srgb, var(--v-muted) 42%, var(--v-panel-2))`, animationDelay: `${Math.min(index * 35, 350)}ms` }}>
+                      <span className="lit-bar block h-full rounded-full" style={{ width: `${kept * 100}%`, background: row.profit < 0 ? "var(--v-danger)" : green, ["--glow" as string]: green }} />
+                    </span>
+                  </span>
+                  <span className="mt-1 block text-xs tabular-nums text-muted">{row.count} sold · {cash(row.revenue)} in{keptShare != null ? ` · ${Math.round(keptShare * 100)}% kept` : row.revenue > 0 ? " · cost not entered" : ""}{row.unpriced ? ` · ${row.unpriced} with no price` : ""}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </>
       ) : (
         <>
           <div className={`${bare ? "" : "mt-3 "}grid grid-cols-[1fr_2.75rem_4.75rem_4.75rem] gap-2 border-b border-line pb-2 text-[10px] font-medium tracking-widest text-faint uppercase`}>
@@ -1667,14 +1689,14 @@ function SettingFold({ title, icon, open, onToggle, children }: { title: string;
    (.piece), an opened fold's body rises (.row-in), and the Columns and Ads
    rows rise with the same stagger SalesBoard rows already used; bars, columns
    and ring arcs kept their 1.0.6 grows and nothing new counts or fades. */
-function StatFold({ title, open, pinned, onToggle, onPin, line, children }: { title: string; open: boolean; pinned: boolean; onToggle: () => void; onPin: () => void; line?: string; children: ReactNode }) {
+function StatFold({ title, open, pinned, onToggle, onPin, line, children, shot }: { title: string; open: boolean; pinned: boolean; onToggle: () => void; onPin: () => void; line?: string; children: ReactNode; shot?: string }) {
   return (
-    <section className="rounded-3xl border border-line bg-panel">
+    <section data-shot={shot} className="rounded-3xl border border-line bg-panel">
       <div className="flex items-center gap-1 pr-2">
         <button type="button" aria-expanded={open} onClick={onToggle} className="press flex min-w-0 flex-1 items-center gap-2 px-4 py-2.5 text-left">
           <ChevronDown className={`size-4 shrink-0 self-center text-muted transition-transform ${open ? "" : "-rotate-90"}`} strokeWidth={1.75} />
           <span className="min-w-0 flex-1">
-            <span className="block truncate font-display text-base leading-tight">{title}</span>
+            <span className="block font-display text-base leading-tight">{title}</span>
             {!open && line ? <span className="mt-0.5 block text-xs leading-snug text-muted">{line}</span> : null}
           </span>
         </button>
@@ -1843,7 +1865,7 @@ function LatestSales({ pieces, onOpen }: { pieces: Piece[]; onOpen: (piece: Piec
             <button type="button" onClick={() => onOpen(piece)} className="press flex w-full items-center justify-between gap-3 rounded-2xl border border-line bg-panel px-4 py-3 text-left">
               <span className="min-w-0">
                 <span className="block truncate text-sm font-medium">{piece.name}</span>
-                <span className="block text-xs text-muted">{piece.soldOn ?? "No date"}{piece.usSize ? ` · US ${piece.usSize}` : ""}</span>
+                <span className="block text-xs text-muted">{piece.soldOn ?? "No date"}{piece.usSize ? ` · US ${halfSize(piece.usSize)}` : ""}</span>
               </span>
               <span className="shrink-0 text-right text-sm tabular-nums">
                 <span className="block">{piece.saleCents == null ? "No price" : money(piece.saleCents)}</span>
@@ -1935,7 +1957,7 @@ function PieceCard({
     { key: "problem", label: "Problem", icon: CircleAlert, onClick: () => setFlags((open) => !open), tone: piece.problem ? "danger" : undefined },
     { key: "delete", label: "Delete", icon: Trash2, onClick: onDelete, tone: "danger" },
   ];
-  const sizeLine = [piece.sizeLabel ? `${piece.sizeSystem} ${piece.sizeLabel}` : "", piece.usSize ? `US ${piece.usSize}` : ""].filter(Boolean).join(" · ");
+  const sizeLine = [piece.sizeLabel ? `${piece.sizeSystem} ${piece.sizeLabel}` : "", piece.usSize ? `US ${halfSize(piece.usSize)}` : ""].filter(Boolean).join(" · ");
   const frame = !iconic && piece.photo ? (
     <img src={piece.photo} alt="" className="size-full object-cover" />
   ) : (
@@ -2028,7 +2050,7 @@ function PieceCard({
             )}
           </div>
           <p className="mt-2 text-sm tabular-nums">
-            {[piece.sizeLabel ? `${piece.sizeSystem} ${piece.sizeLabel}` : "", piece.usSize ? `US ${piece.usSize}` : ""].filter(Boolean).join(" · ") || "No size"}
+            {[piece.sizeLabel ? `${piece.sizeSystem} ${piece.sizeLabel}` : "", piece.usSize ? `US ${halfSize(piece.usSize)}` : ""].filter(Boolean).join(" · ") || "No size"}
           </p>
         </div>
       </div>
@@ -2508,7 +2530,7 @@ type FoldState = { openStats: string[]; pinnedStats: string[]; foldStat: (id: st
 
 function DeskFold({ s, id, title, line, children }: { s: FoldState; id: string; title: string; line?: string; children: ReactNode }) {
   return (
-    <StatFold title={title} line={line} open={s.openStats.includes(id) || s.pinnedStats.includes(id)} pinned={s.pinnedStats.includes(id)} onToggle={() => s.foldStat(id)} onPin={() => s.pinStat(id)}>
+    <StatFold shot={`stat-${id}`} title={title} line={line ? commas(line) : line} open={s.openStats.includes(id) || s.pinnedStats.includes(id)} pinned={s.pinnedStats.includes(id)} onToggle={() => s.foldStat(id)} onPin={() => s.pinStat(id)}>
       {children}
     </StatFold>
   );
@@ -2556,12 +2578,12 @@ function StatsDesk({
   const sizeRows = m.bySize
     .slice()
     .sort((a, b) => b.soldUnits - a.soldUnits || b.stockUnits - a.stockUnits || a.label.localeCompare(b.label))
-    .map((row) => ({ label: row.label, value: row.soldUnits, text: `${row.soldUnits} sold`, sub: `${row.stockUnits} left${row.sellThrough != null ? ` · ${pct(row.sellThrough)}` : ""}` }));
+    .map((row) => ({ label: row.label, a: row.soldUnits, b: row.stockUnits, extra: row.sellThrough != null ? pct(row.sellThrough) : undefined }));
   const topSize = m.bySize.filter((row) => row.label !== "No size").sort((a, b) => b.soldUnits - a.soldUnits)[0];
 
   return (
     <div className="piece mt-4 space-y-3">
-      <section className="advice-hero framed rounded-3xl bg-panel p-5">
+      <section data-shot="stat-hero" className="advice-hero framed rounded-3xl bg-panel p-5">
         <Kicker>Statistics · {m.units.sold} {m.units.sold === 1 ? "sale" : "sales"} counted</Kicker>
         <div className="mt-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
           <div className="min-w-0">
@@ -2713,7 +2735,7 @@ function StatsDesk({
       </DeskFold>
 
       <DeskFold s={st} id="sizes" title="Sizes" line={topSize && topSize.soldUnits > 1 ? `${topSize.label} sold most: ${topSize.soldUnits} times, ${topSize.stockUnits} still here.` : lines.sizes}>
-        <Bars rows={sizeRows} tone={TONES.blue} limit={8} empty="No sizes yet." />
+        <PairBars rows={sizeRows} aLabel="Sold" bLabel="Still here" extraLabel="% is the share sold" aTone={TONES.blue} limit={8} empty="No sizes yet." />
       </DeskFold>
 
       <DeskFold s={st} id="channels" title="Channels and clients" line={channels.length ? `${channels[0].label} brought the most: ${cash(channels[0].revenue, true)}.` : "No sale names where it sold yet. Add the channel when you mark a sale and this shows where the money comes from."}>
@@ -2732,7 +2754,7 @@ function StatsDesk({
       </DeskFold>
 
       <DeskFold s={st} id="sources" title="Bought from" line={sources.length ? (sources.some((row) => row.soldUnits) ? `${sources.slice().sort((a, b) => b.soldUnits - a.soldUnits)[0].label} has sold the most of what it supplied.` : lines.sources) : "No piece names where it was bought yet."}>
-        <Bars rows={sources.map((row) => ({ label: row.label, value: row.soldUnits + row.stockUnits, text: `${row.soldUnits} sold of ${row.soldUnits + row.stockUnits}`, sub: row.margin != null ? `${pct(row.margin)} margin` : "no sale yet", tone: TONES.teal }))} empty="Add where you bought a piece and this compares your sources." />
+        <PairBars rows={sources.map((row) => ({ label: row.label, a: row.soldUnits, b: row.stockUnits, extra: row.margin != null ? `${pct(row.margin)} margin` : undefined }))} aLabel="Sold" bLabel="Still here" aTone={TONES.teal} empty="Add where you bought a piece and this compares your sources." />
       </DeskFold>
 
       <DeskFold s={st} id="where" title="Where they are" line={lines.where}>

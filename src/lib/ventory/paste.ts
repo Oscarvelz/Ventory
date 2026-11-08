@@ -24,6 +24,11 @@ function stripMarks(value: string) {
 function tidyUs(raw: string) {
   const spaced = raw.trim().replace(/\s+/g, "");
   if (/^box\b/i.test(spaced)) return spaced.replace(/^box/i, "BOX");
+  // Shoes come in whole and half sizes: a converted "7.57" lands on 7.5.
+  if (/^\d+\.\d+$/.test(spaced) && !Number.isInteger(Number(spaced) * 8)) {
+    const n = Math.round(Number(spaced) * 2) / 2;
+    return Number.isInteger(n) ? String(n) : n.toFixed(1);
+  }
   return spaced;
 }
 

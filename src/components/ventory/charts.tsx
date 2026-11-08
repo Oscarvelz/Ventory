@@ -202,7 +202,7 @@ export function Trend({ sales }: { sales: Piece[] }) {
 }
 
 function PeriodLine({ row }: { row: Period }) {
-  const margin = row.revenue > 0 ? row.profit / row.revenue : null;
+  const margin = row.margin;
   return (
     <div key={row.key} className="row-in mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-line pt-2.5 text-sm">
       <span className="font-medium text-ink">{row.label}</span>
@@ -218,34 +218,126 @@ function PeriodLine({ row }: { row: Period }) {
 
 export type BarRow = { label: string; value: number; text: string; sub?: string; tone?: string; negative?: boolean };
 
-/** Ranked horizontal bars. The name and its figure share the first line; the bar runs full width under them. */
+/* 1.1.1 polish: a row never leaves its small figure stranded on a line of
+   its own. When every name is short (sizes, types) the row is ONE line —
+   name · bar · figure — on a shared grid so every bar starts and ends on
+   the same rail. When names are long (products), the name and its figures
+   share the first line and the bar runs the full width under them. Bars
+   glow in their own tone under Tron (.lit-bar). */
+const SHORT_LABEL = 12;
+
 export function Bars({ rows, tone = TONES.green, limit = 6, empty, onMore }: { rows: BarRow[]; tone?: string; limit?: number; empty?: string; onMore?: boolean }) {
   const [all, setAll] = useState(false);
   const shown = all ? rows : rows.slice(0, limit);
   const peak = Math.max(1, ...rows.map((row) => Math.abs(row.value)));
   if (!rows.length) return <p className="text-sm text-muted">{empty ?? "Nothing to measure yet."}</p>;
+  const inline = rows.every((row) => row.label.length <= SHORT_LABEL && `${row.text} · ${row.sub ?? ""}`.length <= 24);
+  const width = (row: BarRow) => `${Math.max(row.value === 0 ? 0 : 3, Math.round((Math.abs(row.value) / peak) * 100))}%`;
+  const fill = (row: BarRow) => (row.negative ? "var(--v-danger)" : litTone(row.tone ?? tone));
+  const subCh = Math.max(0, ...shown.map((row) => (row.sub ?? "").length));
   return (
     <div>
-      <ul className="space-y-3">
-        {shown.map((row, index) => (
-          <li key={row.label} className="row-in" style={{ animationDelay: `${Math.min(index * 45, 360)}ms` }}>
-            <div className="flex items-baseline justify-between gap-3 text-sm">
-              <span className="min-w-0 text-ink">{row.label}</span>
-              <span className={`shrink-0 tabular-nums ${row.negative ? "text-danger" : "text-ink"}`}>{row.text}</span>
-            </div>
-            <div className="mt-1.5 flex items-center gap-3">
-              <span className="h-2 flex-1 overflow-hidden rounded-full bg-panel-2">
-                <span
-                  className="bar-fill block h-full rounded-full"
-                  style={{ width: `${Math.max(row.value === 0 ? 0 : 3, Math.round((Math.abs(row.value) / peak) * 100))}%`, background: row.negative ? "var(--v-danger)" : litTone(row.tone ?? tone), animationDelay: `${Math.min(index * 45, 360)}ms` }}
-                />
+      {inline ? (
+        <ul className="grid grid-cols-[max-content_minmax(0,1fr)_max-content] items-center gap-x-3 gap-y-2.5">
+          {shown.map((row, index) => (
+            <li key={row.label} className="row-in col-span-3 grid grid-cols-subgrid items-center" style={{ animationDelay: `${Math.min(index * 45, 360)}ms` }}>
+              <span className="text-sm whitespace-nowrap text-ink">{row.label}</span>
+              <span className="h-2 overflow-hidden rounded-full bg-panel-2">
+                <span className="bar-fill lit-bar block h-full rounded-full" style={{ width: width(row), background: fill(row), ["--glow" as string]: fill(row), animationDelay: `${Math.min(index * 45, 360)}ms` }} />
               </span>
-              {row.sub ? <span className="shrink-0 text-xs tabular-nums text-muted">{row.sub}</span> : null}
-            </div>
-          </li>
-        ))}
-      </ul>
+              <span className="text-right text-sm whitespace-nowrap tabular-nums">
+                <span className={row.negative ? "text-danger" : "text-ink"}>{row.text}</span>
+                {row.sub ? <span className="text-muted"> · {row.sub}</span> : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <ul className="space-y-3">
+          {shown.map((row, index) => (
+            <li key={row.label} className="row-in" style={{ animationDelay: `${Math.min(index * 45, 360)}ms` }}>
+              <div className="flex items-baseline justify-between gap-3 text-sm">
+                <span className="min-w-0 text-ink">{row.label}</span>
+                <span className={`shrink-0 whitespace-nowrap tabular-nums ${row.negative ? "text-danger" : "text-ink"}`}>{row.text}</span>
+              </div>
+              <div className="mt-1.5 grid items-center gap-3 text-xs" style={{ gridTemplateColumns: subCh ? `minmax(0,1fr) calc(${subCh}ch * 0.86)` : "minmax(0,1fr)" }}>
+                <span className="block h-1.5 overflow-hidden rounded-full bg-panel-2">
+                  <span className="bar-fill lit-bar block h-full rounded-full" style={{ width: width(row), background: fill(row), ["--glow" as string]: fill(row), animationDelay: `${Math.min(index * 45, 360)}ms` }} />
+                </span>
+                {subCh ? <span className="text-right whitespace-nowrap tabular-nums text-muted">{row.sub ?? ""}</span> : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
       {(onMore ?? true) && rows.length > limit ? (
+        <button type="button" className="press mt-3 text-sm text-accent" onClick={() => setAll((v) => !v)}>
+          {all ? "Show fewer" : `Show all ${rows.length}`}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- two-part bars */
+
+export type PairRow = { label: string; a: number; b: number; extra?: string };
+
+/** What left against what is still here, per row, on one line: name · a two-part bar · "2 sold · 1 left". One shared scale, so a longer bar is more pieces in all. */
+export function PairBars({ rows, aLabel, bLabel, extraLabel, aTone = TONES.blue, limit = 6, empty, aWord = "sold", bWord = "left" }: { rows: PairRow[]; aLabel: string; bLabel: string; extraLabel?: string; aTone?: string; limit?: number; empty?: string; aWord?: string; bWord?: string }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? rows : rows.slice(0, limit);
+  const peak = Math.max(1, ...rows.map((row) => row.a + row.b));
+  const color = litTone(aTone);
+  const rest = `color-mix(in srgb, ${color} 30%, var(--v-panel-2))`;
+  if (!rows.length) return <p className="text-sm text-muted">{empty ?? "Nothing to measure yet."}</p>;
+  const inline = rows.every((row) => row.label.length <= SHORT_LABEL);
+  const figure = (row: PairRow) => (
+    <span className="text-right text-sm whitespace-nowrap tabular-nums">
+      <span className="text-ink">{row.a} {aWord}</span>
+      <span className="text-muted"> · {row.b} {bWord}</span>
+      {row.extra ? <span className="text-faint"> · {row.extra}</span> : null}
+    </span>
+  );
+  const bar = (row: PairRow, index: number) => (
+    <span className="flex h-2 min-w-0 overflow-hidden rounded-full bg-panel-2" aria-hidden>
+      <span className="bar-fill flex h-full" style={{ width: `${((row.a + row.b) / peak) * 100}%`, animationDelay: `${Math.min(index * 45, 360)}ms` }}>
+        {row.a ? <span className="lit-bar block h-full rounded-full" style={{ width: `${(row.a / Math.max(1, row.a + row.b)) * 100}%`, background: color, ["--glow" as string]: color }} /> : null}
+        {row.b ? <span className="block h-full flex-1 rounded-full" style={{ background: rest, marginLeft: row.a ? 2 : 0 }} /> : null}
+      </span>
+    </span>
+  );
+  return (
+    <div>
+      <div className="mb-2.5 flex items-center gap-4 text-[11px] text-muted" aria-hidden>
+        <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-3 rounded-full" style={{ background: color }} />{aLabel}</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-3 rounded-full" style={{ background: rest }} />{bLabel}</span>
+        {extraLabel ? <span className="ml-auto whitespace-nowrap text-faint">{extraLabel}</span> : null}
+      </div>
+      {inline ? (
+        <ul className="grid grid-cols-[max-content_minmax(0,1fr)_max-content] items-center gap-x-3 gap-y-2.5">
+          {shown.map((row, index) => (
+            <li key={row.label} className="row-in col-span-3 grid grid-cols-subgrid items-center" style={{ animationDelay: `${Math.min(index * 45, 360)}ms` }}>
+              <span className="text-sm whitespace-nowrap text-ink">{row.label}</span>
+              {bar(row, index)}
+              {figure(row)}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <ul className="space-y-3">
+          {shown.map((row, index) => (
+            <li key={row.label} className="row-in" style={{ animationDelay: `${Math.min(index * 45, 360)}ms` }}>
+              <div className="flex items-baseline justify-between gap-3 text-sm">
+                <span className="min-w-0 text-ink">{row.label}</span>
+                {figure(row)}
+              </div>
+              <div className="mt-1.5">{bar(row, index)}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {rows.length > limit ? (
         <button type="button" className="press mt-3 text-sm text-accent" onClick={() => setAll((v) => !v)}>
           {all ? "Show fewer" : `Show all ${rows.length}`}
         </button>
@@ -288,13 +380,13 @@ export function AgeColumns({ buckets, money = true }: { buckets: AgeBucket[]; mo
         const color = litTone(bucket.tone);
         return (
           <div key={bucket.id} className="flex min-w-0 flex-col items-center">
-            <span className="font-display text-lg leading-none tabular-nums">{bucket.units}</span>
-            <div className="mt-1.5 flex h-20 w-full items-end justify-center">
-              <div className="flex h-full w-full max-w-11 flex-col justify-end overflow-hidden rounded-md bg-panel-2">
-                <div className="col-fill w-full rounded-md" style={{ height: `${bucket.units ? Math.max(8, Math.round((bucket.units / peak) * 100)) : 0}%`, background: color, animationDelay: `${index * 60}ms` }} />
+            <span className={`text-lg leading-none font-medium tabular-nums ${bucket.units ? "text-ink" : "text-faint"}`}>{bucket.units}</span>
+            <div className="mt-2 flex h-20 w-full items-end justify-center">
+              <div className="relative flex h-full w-full max-w-7 flex-col justify-end rounded-full bg-panel-2">
+                {bucket.units ? <div className="col-fill lit-bar w-full rounded-full" style={{ height: `${Math.max(10, Math.round((bucket.units / peak) * 100))}%`, background: `linear-gradient(180deg, ${color}, color-mix(in srgb, ${color} 62%, var(--v-panel-2)))`, ["--glow" as string]: color, animationDelay: `${index * 60}ms` }} /> : null}
               </div>
             </div>
-            <span className="mt-1.5 text-[11px] whitespace-nowrap text-muted">{bucket.label}</span>
+            <span className="mt-2 text-[11px] whitespace-nowrap text-muted">{bucket.label}</span>
             {money ? <span className="text-[11px] whitespace-nowrap tabular-nums text-faint">{axisCash(bucket.cost)}</span> : null}
           </div>
         );
@@ -312,9 +404,11 @@ export function Histogram({ rows, tone = TONES.teal }: { rows: { label: string; 
     <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${rows.length}, minmax(0, 1fr))` }}>
       {rows.map((row, index) => (
         <div key={row.label} className="flex min-w-0 flex-col items-center">
-          <span className="text-xs tabular-nums text-ink">{row.units}</span>
-          <div className="mt-1 flex h-16 w-full items-end">
-            <div className="col-fill w-full rounded-md" style={{ height: `${row.units ? Math.max(6, Math.round((row.units / peak) * 100)) : 2}%`, background: row.units ? color : "var(--v-panel-2)", animationDelay: `${index * 50}ms` }} />
+          <span className={`text-xs tabular-nums ${row.units ? "text-ink" : "text-faint"}`}>{row.units}</span>
+          <div className="mt-1 flex h-16 w-full items-end justify-center">
+            <div className="flex h-full w-full max-w-6 flex-col justify-end rounded-full bg-panel-2">
+              {row.units ? <div className="col-fill lit-bar w-full rounded-full" style={{ height: `${Math.max(12, Math.round((row.units / peak) * 100))}%`, background: `linear-gradient(180deg, ${color}, color-mix(in srgb, ${color} 62%, var(--v-panel-2)))`, ["--glow" as string]: color, animationDelay: `${index * 50}ms` }} /> : null}
+            </div>
           </div>
           <span className="mt-1.5 text-[10px] whitespace-nowrap text-muted">{row.label}</span>
         </div>
@@ -332,7 +426,7 @@ export function Split({ parts, height = 10 }: { parts: { label: string; value: n
     <div>
       <div className="flex w-full gap-0.5 overflow-hidden rounded-full" style={{ height }}>
         {parts.filter((p) => p.value > 0).map((p, index) => (
-          <span key={p.label} className="bar-fill block h-full first:rounded-l-full last:rounded-r-full" style={{ width: `${(p.value / total) * 100}%`, background: litTone(p.tone), animationDelay: `${index * 90}ms` }} />
+          <span key={p.label} className="bar-fill lit-bar block h-full first:rounded-l-full last:rounded-r-full" style={{ width: `${(p.value / total) * 100}%`, background: litTone(p.tone), ["--glow" as string]: litTone(p.tone), animationDelay: `${index * 90}ms` }} />
         ))}
       </div>
       <ul className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1.5 text-sm">
@@ -355,14 +449,24 @@ export function Delta({ label, now, before, format }: { label: string; now: numb
   const up = change != null && change > 0.005;
   const down = change != null && change < -0.005;
   const color = up ? litTone(TONES.green) : down ? "var(--v-danger)" : "var(--v-muted)";
+  const peak = Math.max(1, Math.abs(now), Math.abs(before ?? 0));
+  const lit = litTone(TONES.green);
   return (
-    <div className="flex items-baseline justify-between gap-3 border-b border-line py-2.5 last:border-b-0">
-      <span className="min-w-0 text-sm text-muted">{label}</span>
-      <span className="flex shrink-0 items-baseline gap-3 tabular-nums">
-        <span className="font-display text-lg leading-none text-ink">{format(now)}</span>
-        <span className="w-24 text-right text-xs text-faint">{before == null ? "no earlier" : `was ${format(before)}`}</span>
-        <span className="w-14 text-right text-xs font-medium" style={{ color }}>{change == null ? "—" : `${up ? "▲" : down ? "▼" : "•"} ${Math.abs(Math.round(change * 100))}%`}</span>
-      </span>
+    <div className="border-b border-line py-2.5 last:border-b-0">
+      <div className="flex items-center justify-between gap-3">
+        <span className="min-w-0 text-sm text-muted">{label}</span>
+        <span className="flex shrink-0 items-center gap-2.5 tabular-nums">
+          <span className="text-lg leading-none font-medium text-ink">{format(now)}</span>
+          <span className="min-w-14 rounded-full px-2 py-0.5 text-center text-xs font-medium whitespace-nowrap" style={{ color, background: change == null ? "var(--v-panel-2)" : `color-mix(in srgb, ${color} 16%, transparent)` }}>{change == null ? "new" : `${up ? "▲" : down ? "▼" : "•"} ${Math.abs(Math.round(change * 100))}%`}</span>
+        </span>
+      </div>
+      <div className="mt-1.5 flex items-center gap-3" aria-hidden>
+        <span className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="h-1.5 overflow-hidden rounded-full bg-panel-2"><span className="bar-fill lit-bar block h-full rounded-full" style={{ width: `${Math.max(now > 0 ? 3 : 0, (Math.max(0, now) / peak) * 100)}%`, background: lit, ["--glow" as string]: lit }} /></span>
+          <span className="h-1 overflow-hidden rounded-full bg-panel-2"><span className="bar-fill block h-full rounded-full" style={{ width: `${Math.max(before ? 3 : 0, (Math.max(0, before ?? 0) / peak) * 100)}%`, background: "color-mix(in srgb, var(--v-muted) 50%, var(--v-panel-2))", animationDelay: "90ms" }} /></span>
+        </span>
+        <span className="w-20 shrink-0 text-right text-[11px] whitespace-nowrap tabular-nums text-faint">{before == null ? "no earlier" : `was ${format(before)}`}</span>
+      </div>
     </div>
   );
 }

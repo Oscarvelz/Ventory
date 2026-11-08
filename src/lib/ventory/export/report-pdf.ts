@@ -508,7 +508,7 @@ function drawTrend(ctx: Ctx) {
   table(
     ctx,
     [{ label: "Month", w: 110 }, { label: "Sales", w: 50, align: "right" }, { label: "Money in", w: 90, align: "right" }, { label: "Left after cost", w: 90, align: "right" }, { label: "Margin", w: 60, align: "right" }, { label: "Share of the period", w: 130 }],
-    rows.map((r) => [r.label, String(r.units), cash(r.revenue), { text: cash(r.profit), color: r.profit < 0 ? C.red : C.ink }, r.revenue ? pct(r.profit / r.revenue) : "—", { bar: md.m.revenue ? r.revenue / Math.max(...md.months.map((x) => x.revenue), 1) : 0, color: C.amber, text: md.m.revenue ? pct(r.revenue / md.m.revenue) : "" }]),
+    rows.map((r) => [r.label, String(r.units), cash(r.revenue), { text: cash(r.profit), color: r.profit < 0 ? C.red : C.ink }, pct(r.margin), { bar: md.m.revenue ? r.revenue / Math.max(...md.months.map((x) => x.revenue), 1) : 0, color: C.amber, text: md.m.revenue ? pct(r.revenue / md.m.revenue) : "" }]),
     { totals: ["Dated sales", String(md.months.reduce((s, r) => s + r.units, 0)), cash(md.months.reduce((s, r) => s + r.revenue, 0)), cash(md.months.reduce((s, r) => s + r.profit, 0)), pct(md.m.margin), ""] },
   );
 }

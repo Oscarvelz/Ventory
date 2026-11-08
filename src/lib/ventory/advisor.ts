@@ -309,7 +309,8 @@ export function buildAdvice(pieces: Piece[], ads: Ad[], today = new Date()): Adv
     const lesson = [...priced].sort((a, b) => (b.soldOn ?? "").localeCompare(a.soldOn ?? ""))[0];
     if (lesson && lesson.saleCents != null) {
       const days = daysHeld(lesson.receivedOn, lesson.soldOn);
-      const gained = netOf(lesson, ads);
+      // A sale with no cost on its card has an unknown profit, never a 100% one (1.1.2).
+      const gained = lesson.costCents > 0 ? netOf(lesson, ads) : null;
       cards.unshift({
         id: "lesson",
         question: "What did the last sale teach?",
@@ -317,7 +318,7 @@ export function buildAdvice(pieces: Piece[], ads: Ad[], today = new Date()): Adv
         title: priced.length === 1 ? `${lesson.name} is one lesson, not a pattern` : `${lesson.name} is the latest sale`,
         tone: gained != null && gained < 0 ? "loss" : "ready",
         pieceIds: [lesson.id],
-        body: `${lesson.name} came in at ${money(lesson.saleCents)} against ${money(lesson.costCents)} cost${days != null ? ` and ${days} days on hand` : ", with no arrival date, so the days are unknown"}. Net profit — what stayed after cost and any ad on this name, before fees I do not have — is ${gained == null ? "unknown" : money(gained)}.${gained != null && days != null && days > 0 ? ` Speed is ${money(Math.round(gained / days))} a day, with what I can see.` : ""} ${priced.length === 1 ? "One sale does not tell you what to buy next." : "Buy again only where this type, size and source have done it more than once."}`,
+        body: `${lesson.name} came in at ${money(lesson.saleCents)} ${lesson.costCents > 0 ? `against ${money(lesson.costCents)} cost` : "with no cost on its card"}${days != null ? ` and ${days} days on hand` : ", with no arrival date, so the days are unknown"}. Net profit — what stayed after cost and any ad on this name, before fees I do not have — is ${gained == null ? "unknown until the cost is on the card" : money(gained)}.${gained != null && days != null && days > 0 ? ` Speed is ${money(Math.round(gained / days))} a day, with what I can see.` : ""} ${priced.length === 1 ? "One sale does not tell you what to buy next." : "Buy again only where this type, size and source have done it more than once."}`,
       });
     }
   }

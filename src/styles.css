@@ -533,3 +533,46 @@ html[data-theme="tron"] body { overflow-x: clip; }
 [data-theme="tron"] ::selection {
   background: rgba(0, 229, 255, 0.35);
 }
+
+/* =====================================================================
+   Statistics and Advisor finish (1.1.1). Cards carry their tone as a
+   thin light along the top edge (replacing the thick rounded left bar
+   that bent with the corner) and in a small icon disc; bars, discs and
+   key figures glow in their own tone under Tron only. Paragraphs wrap
+   without orphans. No layout or colour change outside these hooks.
+   ===================================================================== */
+.insight .tone-edge {
+  position: absolute;
+  top: 0;
+  left: 18px;
+  right: 18px;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: linear-gradient(90deg, transparent, var(--tone) 18%, color-mix(in srgb, var(--tone) 55%, transparent) 62%, transparent);
+  opacity: 0.85;
+  pointer-events: none;
+}
+.insight p,
+.insight li { text-wrap: pretty; }
+[data-theme="tron"] .insight .tone-edge {
+  opacity: 1;
+  box-shadow: 0 0 10px 0 var(--tone);
+}
+[data-theme="tron"] .insight {
+  background-image: radial-gradient(120% 60% at 0% 0%, color-mix(in srgb, var(--tone) 7%, transparent), transparent 60%);
+}
+[data-theme="tron"] .icon-disc {
+  box-shadow: 0 0 12px -3px currentColor, inset 0 0 0 1px color-mix(in srgb, currentColor 45%, transparent);
+}
+[data-theme="tron"] .lit-bar {
+  box-shadow: 0 0 8px -1px var(--glow);
+}
+[data-theme="tron"] .figure-lit {
+  color: color-mix(in srgb, var(--tone) 35%, #f2fdff);
+  text-shadow: 0 0 14px color-mix(in srgb, var(--tone) 55%, transparent);
+}
+.insight h3 { text-wrap: balance; }
+/* Tron: a toned action card keeps the Grid's navy (a warm tint over navy reads grey-brown). */
+[data-theme="tron"] article.insight.framed {
+  background: radial-gradient(120% 70% at 0% 0%, color-mix(in srgb, var(--tone) 9%, transparent), transparent 62%), var(--v-panel) !important;
+}

@@ -30,7 +30,7 @@ export type Group = {
   sellThrough: number | null;
 };
 
-export type Period = { key: string; label: string; short: string; revenue: number; profit: number; units: number };
+export type Period = { key: string; label: string; short: string; revenue: number; profit: number; units: number; margin: number | null };
 
 export type AgeBucket = { id: string; label: string; min: number; max: number; units: number; cost: number; tone: string };
 
@@ -95,14 +95,45 @@ export function netCost(piece: Piece) {
   return effectiveCostCents(piece);
 }
 
+/** A sale's cost is known only when the card carries one. A missing cost is unknown, not free: such a sale stays out of every margin (1.1.2). */
+export function costKnown(piece: Piece) {
+  return piece.costCents > 0;
+}
+
+/** Margin over the sales whose cost is known; null when none is. */
+export function marginOf(pieces: Piece[]) {
+  let revenue = 0;
+  let profit = 0;
+  for (const piece of pieces) {
+    if (!costKnown(piece)) continue;
+    const t = saleTake(piece);
+    if (!t) continue;
+    revenue += t.revenue;
+    profit += t.profit;
+  }
+  return revenue > 0 ? profit / revenue : null;
+}
+
 export function saleTake(piece: Piece): { revenue: number; cost: number; profit: number } | null {
   const take = profitOf(piece);
   return take ? { revenue: take.revenue, cost: take.cost, profit: take.profit } : null;
 }
 
+/** A US shoe size as shoes are sold: whole or half sizes. A converted value
+    like "7.57" or "8.09" (an EU/CN conversion that kept its decimals) rounds
+    to the nearest half; "8+", "7 1/4" and other written forms stay as typed. */
+export function halfSize(raw: string) {
+  const text = String(raw ?? "").trim();
+  if (!/^\d+\.\d+$/.test(text)) return text;
+  // Eighths (7.125, 7.375: hat sizes) are real sizes; anything else off the half grid is conversion noise.
+  if (Number.isInteger(Number(text) * 8)) return text;
+  const n = Math.round(Number(text) * 2) / 2;
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
 export function sizeName(piece: Piece) {
-  if (piece.usSize) return `US ${piece.usSize}`;
-  if (piece.sizeLabel) return `${piece.sizeSystem} ${piece.sizeLabel}`.trim();
+  if (piece.usSize) return `US ${halfSize(piece.usSize)}`;
+  if (piece.sizeLabel) return `${piece.sizeSystem} ${piece.sizeSystem === "US" ? halfSize(piece.sizeLabel) : piece.sizeLabel}`.trim();
   return "";
 }
 
@@ -157,7 +188,7 @@ export function groupBy(pieces: Piece[], key: (piece: Piece) => string, empty: s
         revenue,
         cost,
         profit: revenue - cost,
-        margin: revenue > 0 ? (revenue - cost) / revenue : null,
+        margin: marginOf(sold),
         avgSale: pricedUnits ? Math.round(revenue / pricedUnits) : null,
         stockUnits,
         stockCost: stock.reduce((sum, piece) => sum + piece.costCents * piece.qty, 0),
@@ -251,7 +282,7 @@ export function measure(pieces: Piece[], ads: Ad[] = [], opts: { from?: string |
     revenue,
     costOfSales,
     profit,
-    margin: revenue > 0 ? profit / revenue : null,
+    margin: marginOf(priced),
     avgSale: pricedUnits ? Math.round(revenue / pricedUnits) : null,
     avgProfit: pricedUnits ? Math.round(profit / pricedUnits) : null,
     priceCuts: sales.reduce((sum, piece) => sum + priceCutCents(piece) * piece.qty, 0),
@@ -327,7 +358,7 @@ export function series(sales: Piece[], grain: Grain, opts: { today?: string; lim
   let guard = 0;
   while (cursor.getTime() <= end.getTime() && guard < 600) {
     const { key } = keyOf(cursor, grain);
-    map.set(key, { key, ...labels(cursor, grain), revenue: 0, profit: 0, units: 0 });
+    map.set(key, { key, ...labels(cursor, grain), revenue: 0, profit: 0, units: 0, margin: null });
     cursor = step(cursor, grain);
     guard += 1;
   }
@@ -343,6 +374,7 @@ export function series(sales: Piece[], grain: Grain, opts: { today?: string; lim
     }
   }
   const rows = [...map.values()];
+  for (const row of rows) row.margin = marginOf(dated.filter((piece) => keyOf(parse(piece.soldOn as string), grain).key === row.key));
   return opts.limit ? rows.slice(-opts.limit) : rows;
 }
 
