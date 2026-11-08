@@ -713,6 +713,11 @@ export function House() {
           <button type="button" aria-label={isLightTheme(theme) ? "Night" : "Day"} className="press grid size-9 place-items-center rounded-full border border-line" onClick={flipTheme}>
             {isLightTheme(theme) ? <Moon className="size-4" strokeWidth={1.75} /> : <Sun className="size-4" strokeWidth={1.75} />}
           </button>
+          {/* Export lives in the header now (1.1.3, Faro's placement: a round icon button in the top
+              cluster, copied at Oscar's word) — the desk row below is back to its two tabs. */}
+          <button type="button" aria-label="Export a report" aria-haspopup="dialog" className="press grid size-9 place-items-center rounded-full border border-line" onClick={() => setExporting(true)}>
+            <FileDown className="size-4" strokeWidth={1.75} />
+          </button>
           <button type="button" aria-label="Settings" className="press grid size-9 place-items-center rounded-full border border-line" onClick={() => { setFilterOpen(false); setOpenSettings([]); setWipe([]); setWipeAsk(false); setSettings(true); }}>
             <SlidersHorizontal className="size-4" strokeWidth={1.75} />
           </button>
@@ -907,7 +912,7 @@ export function House() {
         </section>
 
         <section className={panel("ledger")}>
-          <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {([
               ["stats", "Statistics"],
               ["advisor", "Advisor"],
@@ -922,14 +927,6 @@ export function House() {
                 {label}
               </RippleButton>
             ))}
-            <RippleButton
-              aria-label="Export a report"
-              onClick={() => setExporting(true)}
-              className="press inline-flex h-11 items-center gap-2 rounded-2xl border border-line/70 px-3.5 text-sm font-medium text-muted"
-            >
-              <FileDown className="size-[18px]" strokeWidth={1.75} />
-              <span className="hidden sm:inline">Export</span>
-            </RippleButton>
           </div>
           {exporting ? <ExportCenter pieces={pieces} ads={adsOn ? ads : []} advice={brief} onClose={() => setExporting(false)} onDone={setNotice} /> : null}
           {desk === "stats" ? (

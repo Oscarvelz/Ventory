@@ -8,6 +8,7 @@ import { awayWasInternal, graceForThisTrip, LEAVE_GRACE_MS, lockCredential, mark
 import { Landing, Locked } from "@/spa/login";
 import { openFloor, startAutoSync, syncNow } from "@/spa/store";
 import { startNative } from "@/spa/native";
+import { markShellReady } from "@/spa/splash";
 
 // Weekly's tron-fx pattern (1.0.12): the Tron skin's one travelling light
 // reads html[data-hidden], so the document carries its visibility state.
@@ -49,6 +50,10 @@ function Floor({ uid }: { uid: string }) {
       live = false;
     };
   }, [uid]);
+  // Launch splash (1.1.3): the floor is the first real screen — hand off once it is drawn.
+  useEffect(() => {
+    if (ready) markShellReady();
+  }, [ready]);
   if (!ready) return <Boot />;
   return <House key={uid} />;
 }
@@ -97,6 +102,12 @@ function Gate() {
   /* Fingerprint gate (1.0.10, lock.ts — the fleet's pattern from Faro and Brizna): a fresh open asks when
    * the lock is on for this account on this device; coming back asks only after a real trip away (graceForThisTrip),
    * and Ventory's own trips out — the prompt itself, the photo picker, a backup download — never count. */
+  // Launch splash (1.1.3): in cloud mode the gate's first real screen (Landing, Locked or the floor)
+  // is drawn once booted — hand off then. Local mode boots straight into Floor, which hands off itself.
+  useEffect(() => {
+    if (CLOUD_READY && booted) markShellReady();
+  }, [booted]);
+
   const uid = user?.id;
   const [open, setOpen] = useState(() => {
     const u = lastUser();

@@ -412,7 +412,9 @@ html[data-theme="tron"] body { overflow-x: clip; }
 /* Header and dock: black glass edged with a light line (Faro's chrome). */
 [data-theme="tron"] .shelf-top {
   background: linear-gradient(180deg, #03090c, #050e12);
-  box-shadow: 0 1px 0 rgba(120, 225, 250, 0.5), 0 8px 18px -10px rgba(0, 229, 255, 0.35);
+  /* No hard line under the header (1.1.3, at Oscar's word — "remove the line opening the floor"):
+     the crisp 1px light edge is gone; only the soft glow stays, and the beams draw their own light. */
+  box-shadow: 0 8px 18px -10px rgba(0, 229, 255, 0.35);
 }
 [data-theme="tron"] .shelf-dock {
   background: linear-gradient(0deg, #03090c, #050e12);
