@@ -903,8 +903,8 @@ export function House() {
                 }}
               >
                 <div className="grid grid-cols-2 gap-2">
-                  <Figure label="Taken in" value={money(stats.revenue)} />
-                  <Figure label="Left after cost" value={money(stats.profit)} negative={stats.profit < 0} />
+                  <Figure label="Taken in" value={money(stats.revenue)} cents={stats.revenue} />
+                  <Figure label="Left after cost" value={money(stats.profit)} negative={stats.profit < 0} cents={stats.profit} />
                   <Exact label="Cost of sales" value={money(stats.cost)} />
                   <Exact label="Margin" value={picture.margin == null ? "—" : `${picture.margin}%`} />
                   <Exact label="Average sale" value={pricedQty ? money(Math.round(stats.revenue / pricedQty)) : "—"} />
@@ -1334,8 +1334,8 @@ function SalesBoard({ title, rows }: { title: string; rows: SaleLine[] }) {
             <span className="text-right">Left</span>
           </div>
           <ul className="divide-y divide-line">
-            {rows.map((row) => (
-              <li key={row.name} className="grid grid-cols-[1fr_2.75rem_4.75rem_4.75rem] items-baseline gap-2 py-2.5 text-sm">
+            {rows.map((row, index) => (
+              <li key={row.name} className="row-in grid grid-cols-[1fr_2.75rem_4.75rem_4.75rem] items-baseline gap-2 py-2.5 text-sm" style={{ animationDelay: `${Math.min(index * 45, 270)}ms` }}>
                 <span className="min-w-0">
                   <span className="block truncate">{row.name}</span>
                   {row.unpriced ? <span className="block text-[10px] text-muted">{row.unpriced} no price</span> : null}
@@ -1369,6 +1369,11 @@ function Ring({ title, parts }: { title: string; parts: { label: string; value: 
               {shown.map((part) => {
                 const gap = shown.length > 1 ? 3 : 0;
                 const length = Math.max(1, (part.value / total) * turn - gap);
+                // 1.0.6: the sweep is timed by arc position — each segment
+                // starts when the sweep reaches it and grows for its share
+                // of an 800ms turn, settling on the dash set below.
+                const delay = Math.round((walked / turn) * 800);
+                const duration = Math.max(60, Math.round((length / turn) * 800));
                 const slice = (
                   <circle
                     key={part.label}
@@ -1380,6 +1385,8 @@ function Ring({ title, parts }: { title: string; parts: { label: string; value: 
                     strokeWidth="14"
                     strokeDasharray={`${length} ${turn - length}`}
                     strokeDashoffset={-walked}
+                    className="ring-arc"
+                    style={{ animationDelay: `${delay}ms`, animationDuration: `${duration}ms` }}
                   />
                 );
                 walked += length + gap;
@@ -1419,7 +1426,7 @@ function Columns({ title, rows, empty }: { title: string; rows: { label: string;
             <li key={row.label} className="flex items-center gap-3 text-sm">
               <span className="w-28 min-w-0 shrink-0 truncate text-muted">{row.label}</span>
               <span className="h-2 flex-1 overflow-hidden rounded-full bg-panel-2">
-                <span className="block h-full rounded-full bg-accent" style={{ width: `${Math.max(4, Math.round((row.value / peak) * 100))}%` }} />
+                <span className="bar-fill block h-full rounded-full bg-accent" style={{ width: `${Math.max(4, Math.round((row.value / peak) * 100))}%` }} />
               </span>
               <span className="w-8 shrink-0 text-right tabular-nums">{row.value}</span>
             </li>
@@ -1646,13 +1653,56 @@ function Exact({ label, value }: { label: string; value: string }) {
   );
 }
 
+/* The two lead figures settle (1.0.6): on first view the number climbs from
+   zero to its exact cents over 700ms of the house ease, and the final frame
+   hands back the caller's own string — so the settled text is byte-for-byte
+   what the static figure always showed, never a re-format of it. Zero never
+   climbs (an empty floor rests at $0.00, no pointless count-up), reduced
+   motion never climbs, and a later data change snaps to the new value
+   instead of replaying. Presentation only: the value itself is untouched. */
+function useCountUp(cents: number | undefined, finalText: string) {
+  const [text, setText] = useState(finalText);
+  const first = useRef(true);
+  useEffect(() => {
+    if (!first.current) {
+      setText(finalText);
+      return;
+    }
+    first.current = false;
+    if (cents == null || cents === 0) {
+      setText(finalText);
+      return;
+    }
+    if (typeof window === "undefined" || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setText(finalText);
+      return;
+    }
+    let raf = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / 700);
+      if (t >= 1) {
+        setText(finalText);
+        return;
+      }
+      const eased = 1 - Math.pow(1 - t, 3);
+      setText(money(Math.round(cents * eased)));
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [cents, finalText]);
+  return text;
+}
+
 /* Faro's figure treatment: the two numbers a fold turns on get the big serif,
    so the eye lands on them before the supporting grid. Same values, new rank. */
-function Figure({ label, value, negative }: { label: string; value: string; negative?: boolean }) {
+function Figure({ label, value, negative, cents }: { label: string; value: string; negative?: boolean; cents?: number }) {
+  const shown = useCountUp(cents, value);
   return (
     <div className="col-span-2 rounded-2xl border border-line bg-canvas px-4 py-4">
       <p className="text-[10px] font-medium tracking-widest text-faint uppercase">{label}</p>
-      <p className={`mt-2 font-display text-[2.6rem] leading-none tracking-tight tabular-nums ${negative ? "text-danger" : ""}`}>{value}</p>
+      <p className={`mt-2 font-display text-[2.6rem] leading-none tracking-tight tabular-nums ${negative ? "text-danger" : ""}`}>{shown}</p>
     </div>
   );
 }
@@ -1706,7 +1756,7 @@ function Performance({ pieces, focus }: { pieces: Piece[]; focus?: "revenue" | "
           )}
           <div className="mt-3 overflow-x-auto">
             <div className="flex h-40 items-end gap-3" style={{ minWidth: rows.length > 5 ? rows.length * 56 : "100%" }}>
-              {rows.map((row) => {
+              {rows.map((row, index) => {
                 const series = shown(row);
                 const headline = series[series.length - 1]?.[1] ?? 0;
                 return (
@@ -1716,10 +1766,11 @@ function Performance({ pieces, focus }: { pieces: Piece[]; focus?: "revenue" | "
                       {series.map(([label, amount]) => (
                         <div key={label} className="flex h-full w-4 flex-col justify-end overflow-hidden rounded-md bg-panel-2">
                           <div
-                            className="w-full rounded-md"
+                            className="col-fill w-full rounded-md"
                             style={{
                               height: `${Math.max(amount > 0 ? 8 : 0, Math.round((Math.max(0, amount) / peak) * 100))}%`,
                               background: label === "Left" ? "#5f8f72" : "#b08a3e",
+                              animationDelay: `${Math.min(index * 35, 210)}ms`,
                             }}
                           />
                         </div>

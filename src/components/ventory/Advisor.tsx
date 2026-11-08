@@ -171,7 +171,7 @@ export function AdvisorView({
         <h2 className="mt-2 font-display text-4xl leading-tight break-words">{leadOf(advice.headline)}</h2>
         <p className="mt-3 font-display text-3xl leading-none">{advice.ready} of {onHand.length} ready</p>
         <div className="mt-3 h-2 overflow-hidden rounded-full bg-panel-2" role="presentation">
-          <div className="h-full rounded-full" style={{ width: `${onHand.length ? Math.round((advice.ready / onHand.length) * 100) : 0}%`, background: GREEN }} />
+          <div className="bar-fill h-full rounded-full" style={{ width: `${onHand.length ? Math.round((advice.ready / onHand.length) * 100) : 0}%`, background: GREEN }} />
         </div>
         <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
           {onHand.map((piece) => {
@@ -185,9 +185,9 @@ export function AdvisorView({
           })}
         </ul>
         <div className="mt-4 flex flex-wrap gap-2 text-sm text-ink">
-          <span className="inline-flex items-center gap-2 rounded-full bg-panel-2 px-3 py-1.5"><span className="size-2 shrink-0 rounded-full" style={{ background: GREEN }} aria-hidden />On hand {money(advice.onHandCents)}</span>
-          <span className="inline-flex items-center gap-2 rounded-full bg-panel-2 px-3 py-1.5"><span className="size-2 shrink-0 rounded-full" style={{ background: "#5d86ad" }} aria-hidden />Coming {money(coming)}</span>
-          <span className="inline-flex items-center gap-2 rounded-full bg-panel-2 px-3 py-1.5 break-words"><span className="size-2 shrink-0 rounded-full" style={{ background: AMBER }} aria-hidden />Oldest: {advice.oldestLabel}</span>
+          <span className="row-in inline-flex items-center gap-2 rounded-full bg-panel-2 px-3 py-1.5" style={{ animationDelay: "40ms" }}><span className="size-2 shrink-0 rounded-full" style={{ background: GREEN }} aria-hidden />On hand {money(advice.onHandCents)}</span>
+          <span className="row-in inline-flex items-center gap-2 rounded-full bg-panel-2 px-3 py-1.5" style={{ animationDelay: "90ms" }}><span className="size-2 shrink-0 rounded-full" style={{ background: "#5d86ad" }} aria-hidden />Coming {money(coming)}</span>
+          <span className="row-in inline-flex items-center gap-2 rounded-full bg-panel-2 px-3 py-1.5 break-words" style={{ animationDelay: "140ms" }}><span className="size-2 shrink-0 rounded-full" style={{ background: AMBER }} aria-hidden />Oldest: {advice.oldestLabel}</span>
         </div>
       </section>
 
@@ -315,7 +315,7 @@ export function AdvisorView({
         </article>
 
         {aging && agingText ? (
-          <article className="rounded-3xl border border-line bg-panel px-4 py-4" style={{ borderLeftWidth: 4, borderLeftColor: aging.tone === "ready" ? GREEN : AMBER }}>
+          <article className="advice-in rounded-3xl border border-line bg-panel px-4 py-4" style={{ borderLeftWidth: 4, borderLeftColor: aging.tone === "ready" ? GREEN : AMBER }}>
             <p className="mb-1.5 text-[11px] font-medium tracking-[0.14em] text-faint uppercase">{aging.question} · {aging.horizon}</p>
             <h3 className="font-display text-2xl leading-tight break-words">{aging.title}</h3>
             <p className="mt-2 text-sm leading-relaxed text-ink">{more.includes(aging.id) && agingText.rest ? `${agingText.short} ${agingText.rest}` : agingText.short}</p>
@@ -389,7 +389,7 @@ function ActionCard({
   const color = tone === "green" ? GREEN : tone === "red" ? RED : AMBER;
   const missing = piece ? missingOf(piece) : [];
   return (
-    <article className="framed rounded-3xl border border-line p-4" style={{ borderLeftWidth: 6, borderLeftColor: color, background: `color-mix(in srgb, ${color} 9%, var(--v-panel))` }}>
+    <article className="advice-in framed rounded-3xl border border-line p-4" style={{ borderLeftWidth: 6, borderLeftColor: color, background: `color-mix(in srgb, ${color} 9%, var(--v-panel))` }}>
       <div className="flex items-start gap-3">
         {piece ? <Thumb piece={piece} onPhoto={onPhoto} /> : null}
         <div className="min-w-0 flex-1">

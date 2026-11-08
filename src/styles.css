@@ -205,6 +205,34 @@
   .piece:nth-child(3) { animation-delay: 80ms; }
   .piece:nth-child(4) { animation-delay: 120ms; }
   .piece:nth-child(5) { animation-delay: 160ms; }
+  /* Data motion (1.0.6) — Faro's register, adapted to Ventory's parts. A
+     value is exact from the first frame; only its ARRIVAL is staged. Bar
+     fills carry their true width or height and grow by transform alone
+     (Faro's a2-grow/a2-up: scaleX/scaleY from 0, .6–.7s of the same house
+     ease the surfaces already use); ledger rows rise the same few pixels
+     the cards do; the ring's arcs lengthen through their own dash pattern,
+     each segment growing in its place, in order, and settling on the very
+     dash the static ring already used (a from-only keyframe, like Faro's
+     grows, so the end state is the element's own geometry). Transform,
+     opacity and dash geometry only — no colour ever transitions here (the
+     1.0.4 rule stands; the theme flip is untouched), and none of this
+     exists under reduced motion: the final state simply stands. */
+  .bar-fill {
+    animation: bar-grow 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    transform-origin: left;
+  }
+  .col-fill {
+    animation: col-grow 600ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    transform-origin: bottom;
+  }
+  .ring-arc {
+    animation-name: ring-grow;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    animation-fill-mode: both;
+  }
+  .row-in {
+    animation: row-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
 }
 
 @keyframes sheet-in {
@@ -218,6 +246,20 @@
 @keyframes piece-in {
   from { opacity: 0; transform: translateY(8px); filter: blur(3px); }
   to { opacity: 1; transform: none; filter: blur(0); }
+}
+/* From-only keyframes (Faro's pattern): the end state is each element's own
+   settled geometry, so the last frame is pixel-for-value the static one. */
+@keyframes bar-grow {
+  from { transform: scaleX(0); }
+}
+@keyframes col-grow {
+  from { transform: scaleY(0); }
+}
+@keyframes ring-grow {
+  from { stroke-dasharray: 0 264; }
+}
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(6px); }
 }
 
 /* Top wordmark and bottom shelf. Transform hides them; it does not free the layout. */
