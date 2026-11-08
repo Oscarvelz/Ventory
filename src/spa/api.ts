@@ -266,12 +266,46 @@ export async function createCheckpoint({ data }: { data: string }) {
    it is loaded. Samples are TAGGED by their ids ("sample-…"): loading writes
    only those ids, and removeSamples tombstones exactly those ids, so a real
    record is never modified, shadowed or removed by either action. Loading
-   twice refreshes the same records instead of duplicating them. */
+   twice refreshes the same records instead of duplicating them.
+   1.0.9: the control lives in Settings (its own "Sample floor" fold, always
+   present, showing its state) — the button on Main only appears on an empty
+   shelf, which trapped anyone who had already loaded the first, untagged
+   sample: their four pieces kept the shelf non-empty, so the button, and
+   with it the complete set, became unreachable. */
 
 export const SAMPLE_PREFIX = "sample-";
 
 export function isSampleId(id: string) {
   return id.startsWith(SAMPLE_PREFIX);
+}
+
+/* ---------- the FIRST sample floor (before 1.0.7) ----------
+   The original loader wrote four bare pieces with NO id at all, so each one
+   got a random UUID and became indistinguishable from a real piece: the
+   tagged-sample controls cannot see them, and while they sit on the shelf
+   the "Load a sample floor" button on Main never appears (it only shows on
+   an empty shelf). They are recognised here by their exact fingerprint —
+   every field the old loader set, plus every field it left empty. A piece
+   the owner has since edited no longer matches and is left alone: it has
+   become theirs. A piece carrying a "sample-…" id is never legacy. */
+const LEGACY_SAMPLES = [
+  { name: "Chelsea boot", category: "Boot", subcategory: "Chelsea", status: "available", sizeSystem: "CN", sizeLabel: "37", fit: "women", costCents: 2800, askCents: 7500, source: "Shein" },
+  { name: "Combat boot", category: "Boot", subcategory: "Combat", status: "available", sizeSystem: "CN", sizeLabel: "42", fit: "men", costCents: 3500, askCents: 9000, source: "Temu" },
+  { name: "Seiko 5", category: "Watch", subcategory: "", status: "available", sizeSystem: "", sizeLabel: "", fit: "unisex", costCents: 8000, askCents: 16000, source: "eBay" },
+  { name: "Square-toe boot", category: "Boot", subcategory: "Square-toe", status: "incoming", sizeSystem: "CN", sizeLabel: "40", fit: "women", costCents: 3200, askCents: 8500, source: "AliExpress" },
+] as const;
+
+export function isLegacySample(piece: Piece): boolean {
+  if (isSampleId(piece.id)) return false;
+  if (piece.brand !== "" || piece.qty !== 1 || piece.saleCents != null || piece.discountCents !== 0 || piece.channel !== "" || piece.clientName !== "" || piece.wasSold || piece.problem !== "" || piece.notes !== "" || piece.photo !== "" || piece.soldOn != null) return false;
+  return LEGACY_SAMPLES.some((s) =>
+    piece.name === s.name && piece.category === s.category && piece.subcategory === s.subcategory &&
+    piece.status === s.status && piece.sizeSystem === s.sizeSystem && piece.sizeLabel === s.sizeLabel &&
+    piece.fit === s.fit && piece.costCents === s.costCents && piece.askCents === s.askCents && piece.source === s.source);
+}
+
+function legacySampleRecords() {
+  return store.list("piece").filter((r) => isLegacySample(toPiece(r.id, r.data as Record<string, unknown>)));
 }
 
 function isoInDays(offset: number): string {
@@ -381,24 +415,39 @@ export function buildSamples(): { pieces: PieceInput[]; ads: { id: string; produ
   return { pieces, ads };
 }
 
+export function sampleSetSize() {
+  const s = buildSamples();
+  return { pieces: s.pieces.length, ads: s.ads.length };
+}
+
 export async function addSamples() {
+  /* Turning the sample floor on also retires the untagged first sample:
+     those four pieces are replaced by the complete set, never duplicated
+     alongside it. */
+  const legacy = legacySampleRecords();
+  if (legacy.length) {
+    await store.write(legacy.map((r) => ({ kind: "piece" as const, id: r.id, deleted: true })));
+  }
   const { pieces, ads } = buildSamples();
   for (const piece of pieces) await upsert(piece);
   for (const ad of ads) {
     await store.write([{ kind: "ad", id: ad.id, data: { product: ad.product, spentCents: ad.spentCents, startedOn: ad.startedOn, endedOn: ad.endedOn, worked: ad.worked } }]);
   }
-  return readPieces();
+  return { pieces: readPieces(), ads: readAds() };
 }
 
-/** Takes the sample floor back out — exactly the sample-tagged records, and
+/** Takes the sample floor back out — the sample-tagged records, plus any
+    untagged pieces still matching the first sample's exact fingerprint, and
     nothing else. Real pieces and ads keep their ids, their sort and their
     data, so the floor is precisely what it was before the samples loaded. */
 export async function removeSamples() {
   const pieces = store.list("piece").filter((r) => isSampleId(r.id));
+  const legacy = legacySampleRecords();
   const ads = store.list("ad").filter((r) => isSampleId(r.id));
   await store.write([
     ...pieces.map((r) => ({ kind: "piece" as const, id: r.id, deleted: true })),
+    ...legacy.map((r) => ({ kind: "piece" as const, id: r.id, deleted: true })),
     ...ads.map((r) => ({ kind: "ad" as const, id: r.id, deleted: true })),
   ]);
-  return { pieces: readPieces(), ads: readAds(), removedPieces: pieces.length, removedAds: ads.length };
+  return { pieces: readPieces(), ads: readAds(), removedPieces: pieces.length + legacy.length, removedAds: ads.length };
 }

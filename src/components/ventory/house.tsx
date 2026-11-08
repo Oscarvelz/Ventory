@@ -6,14 +6,14 @@ import { buildAdvice } from "@/lib/ventory/advisor";
 import { AdvisorView, type AdviceFocus } from "@/components/ventory/Advisor";
 import { parseFloorNotes } from "@/lib/ventory/paste";
 import { convertToUs } from "@/lib/ventory/sizes";
-import { addSamples, clearSelected, createCheckpoint, deleteAd, deletePiece, importPieces, loadFloor, removeSamples, replaceFloor, saveAd, saveAds, saveMark, savePiece, saveTheme } from "@/lib/ventory/server";
+import { addSamples, clearSelected, createCheckpoint, deleteAd, deletePiece, importPieces, isLegacySample, loadFloor, removeSamples, replaceFloor, sampleSetSize, saveAd, saveAds, saveMark, savePiece, saveTheme } from "@/lib/ventory/server";
 import { asTheme, isLightTheme, LIGHT_THEMES, THEMES, type ThemeId } from "@/lib/ventory/themes";
 import { syncBarsNow } from "@/spa/native";
 import { Wordmark } from "./mark";
 import { useScrollBars } from "./use-scroll-bars";
 import { RippleButton, rippleNav } from "./ripple";
 
-const SETTING_FOLDS = ["theme", "ads", "backup", "remove"] as const;
+const SETTING_FOLDS = ["theme", "ads", "backup", "sample", "remove"] as const;
 type Floor = Awaited<ReturnType<typeof loadFloor>>;
 type View = "floor" | "history" | "ledger";
 type Shelf = "live" | "all" | Status;
@@ -604,6 +604,22 @@ export function House() {
 
   const samplePieces = pieces.filter((piece) => piece.id.startsWith("sample-"));
   const sampleAds = ads.filter((ad) => ad.id.startsWith("sample-"));
+  const legacyPieces = pieces.filter((piece) => isLegacySample(piece));
+  const sampleSet = sampleSetSize();
+  const sampleComplete = samplePieces.length >= sampleSet.pieces && sampleAds.length >= sampleSet.ads && legacyPieces.length === 0;
+  const sampleOn = samplePieces.length > 0 || sampleAds.length > 0 || legacyPieces.length > 0;
+
+  function loadSampleFloor() {
+    void addSamples()
+      .then((next) => {
+        setPieces(next.pieces);
+        setAds(next.ads);
+        setSettings(false);
+        setView("floor");
+        setNotice("Sample floor added — turn it off anytime in Settings, under Sample floor");
+      })
+      .catch((err: unknown) => setNotice(err instanceof Error ? err.message : "Could not load the sample floor"));
+  }
 
   const wipeRows = [
     { id: "available", label: "Available", count: pieces.filter((piece) => piece.status === "available").length },
@@ -738,9 +754,7 @@ export function House() {
               <button
                 type="button"
                 className="press mt-5 h-11 rounded-full border border-line px-4 text-sm"
-                onClick={() => {
-                  void addSamples().then(setPieces).then(() => setNotice("Sample floor added — take it out anytime in Settings, under Remove data"));
-                }}
+                onClick={loadSampleFloor}
               >
                 Load a sample floor
               </button>
@@ -1231,18 +1245,37 @@ export function House() {
                 </ul>
               ) : null}
             </SettingFold>
-            <SettingFold title="Remove data" open={openSettings.includes("remove")} onToggle={() => setOpenSettings((current) => current.includes("remove") ? current.filter((id) => id !== "remove") : [...current, "remove"])}>
-              {samplePieces.length || sampleAds.length ? (
-                <div className="mb-3 rounded-2xl border border-line px-3 py-3">
-                  <p className="text-sm">Sample floor</p>
-                  <p className="mt-0.5 text-xs leading-relaxed text-muted">
-                    {samplePieces.length} example {samplePieces.length === 1 ? "piece" : "pieces"} and {sampleAds.length} example ad {sampleAds.length === 1 ? "record" : "records"} from “Load a sample floor”. Removing them leaves your own pieces and ads exactly as they are.
-                  </p>
-                  <button type="button" className="press mt-2 h-10 rounded-full border border-danger px-4 text-sm text-danger" onClick={() => setSampleAsk(true)}>
+            <SettingFold title="Sample floor" open={openSettings.includes("sample")} onToggle={() => setOpenSettings((current) => current.includes("sample") ? current.filter((id) => id !== "sample") : [...current, "sample"])}>
+              <p className="text-sm">
+                {sampleComplete
+                  ? "On — the complete sample floor is on your shelf."
+                  : legacyPieces.length && !samplePieces.length
+                    ? "An older sample is on your shelf."
+                    : sampleOn
+                      ? "On — part of the sample floor is on your shelf."
+                      : "Off — no sample pieces on your shelf."}
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-muted">
+                {legacyPieces.length && !samplePieces.length
+                  ? `${legacyPieces.length} pieces from the first, smaller sample floor (${legacyPieces.map((piece) => piece.name).join(", ")}). That sample was loaded before samples were tagged, so no button could find it again. Updating replaces those pieces with the complete set — your own pieces are never touched.`
+                  : sampleOn
+                    ? `${samplePieces.length + legacyPieces.length} example ${samplePieces.length + legacyPieces.length === 1 ? "piece" : "pieces"} and ${sampleAds.length} example ad ${sampleAds.length === 1 ? "record" : "records"} fill Main, History, Statistics and the Advisor so you can see how everything behaves. Only the examples ever change here — your own pieces and ads stay exactly as they are.`
+                    : `Example pieces fill Main, History, Statistics and the Advisor so you can see how everything behaves — ${sampleSet.pieces} pieces and ${sampleSet.ads} ad records, with sales and dates spread across the year. Your own pieces are never touched, and you can turn the sample off here anytime.`}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {!sampleComplete ? (
+                  <button type="button" className="press h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-ink" onClick={loadSampleFloor}>
+                    {sampleOn ? "Update to the complete sample floor" : "Load the sample floor"}
+                  </button>
+                ) : null}
+                {sampleOn ? (
+                  <button type="button" className="press h-11 rounded-full border border-danger px-4 text-sm text-danger" onClick={() => setSampleAsk(true)}>
                     Remove sample floor
                   </button>
-                </div>
-              ) : null}
+                ) : null}
+              </div>
+            </SettingFold>
+            <SettingFold title="Remove data" open={openSettings.includes("remove")} onToggle={() => setOpenSettings((current) => current.includes("remove") ? current.filter((id) => id !== "remove") : [...current, "remove"])}>
               <p className="mb-3 text-xs leading-relaxed text-muted">Choose what to take off the shelf. Nothing is removed until you confirm.</p>
               <div className="space-y-1">
                 {wipeRows.map((row) => {
@@ -1290,7 +1323,8 @@ export function House() {
         <Overlay onClose={() => setSampleAsk(false)}>
           <p className="font-display text-2xl">Remove the sample floor?</p>
           <p className="mt-3 text-sm leading-relaxed text-muted">
-            {samplePieces.length} example {samplePieces.length === 1 ? "piece" : "pieces"} and {sampleAds.length} example ad {sampleAds.length === 1 ? "record" : "records"} go. Only the examples — your own pieces and ads stay exactly as they are, and you can load the sample floor again whenever you like.
+            {samplePieces.length + legacyPieces.length} example {samplePieces.length + legacyPieces.length === 1 ? "piece" : "pieces"} and {sampleAds.length} example ad {sampleAds.length === 1 ? "record" : "records"} go. Only the examples — your own pieces and ads stay exactly as they are, and you can load the sample floor again whenever you like, right here in Settings.
+            {legacyPieces.length ? ` The older pieces it removes are: ${legacyPieces.map((piece) => piece.name).join(", ")}.` : ""}
           </p>
           <div className="mt-5 flex flex-wrap gap-2">
             <button
