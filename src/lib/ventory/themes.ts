@@ -6,6 +6,7 @@ export const THEMES = [
   { id: "ink", label: "Ink", color: "#0c0e12", ink: "#e8eaee", accent: "#8aa0b8" },
   { id: "bone", label: "Bone", color: "#f6f0e6", ink: "#241c16", accent: "#8a5a3b" },
   { id: "harbor", label: "Harbor", color: "#101820", ink: "#e6eef1", accent: "#6f9aa8" },
+  { id: "tron", label: "Tron", color: "#02060c", ink: "#e6faff", accent: "#00e5ff" },
 ] as const;
 
 export type ThemeId = (typeof THEMES)[number]["id"];

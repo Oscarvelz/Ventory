@@ -9,6 +9,14 @@ import { Landing, Locked } from "@/spa/login";
 import { openFloor, startAutoSync, syncNow } from "@/spa/store";
 import { startNative } from "@/spa/native";
 
+// Weekly's tron-fx pattern (1.0.12): the Tron skin's one travelling light
+// reads html[data-hidden], so the document carries its visibility state.
+if (typeof document !== "undefined") {
+  const syncHidden = () => { document.documentElement.dataset.hidden = String(document.hidden); };
+  document.addEventListener("visibilitychange", syncHidden);
+  syncHidden();
+}
+
 // The app's own loading line (landing.tsx BootScreen), shown while the session and the floor on this device open.
 function Boot() {
   return (

@@ -8,6 +8,7 @@ import { parseFloorNotes } from "@/lib/ventory/paste";
 import { convertToUs } from "@/lib/ventory/sizes";
 import { addSamples, clearSelected, createCheckpoint, deleteAd, deletePiece, importPieces, isLegacySample, loadFloor, removeSamples, replaceFloor, sampleSetSize, saveAd, saveAds, saveMark, savePiece, saveTheme } from "@/lib/ventory/server";
 import { asTheme, isLightTheme, LIGHT_THEMES, THEMES, type ThemeId } from "@/lib/ventory/themes";
+import { tone as litTone } from "@/lib/ventory/tones";
 import { syncBarsNow } from "@/spa/native";
 import { Wordmark } from "./mark";
 import { useScrollBars } from "./use-scroll-bars";
@@ -24,6 +25,16 @@ type Face = "large" | "medium" | "list" | "grid";
 
 function applyTheme(theme: ThemeId) {
   const root = document.documentElement;
+  // Tron carries its own type (Faro's provider pattern): Orbitron for the
+  // display face, Exo 2 for text, loaded only when Tron is first chosen —
+  // the styles.css tron block points the font variables at them.
+  if (theme === "tron" && !document.getElementById("tron-fonts")) {
+    const link = document.createElement("link");
+    link.id = "tron-fonts";
+    link.rel = "stylesheet";
+    link.href = "https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Exo+2:wght@400;500;600;700&display=swap";
+    document.head.appendChild(link);
+  }
   // 1.0.4: nothing to arm or time here — styles.css carries no color
   // transition anymore, so setting data-theme swaps the palette in one frame.
   // (1.0.3 parked a .theming class for 240ms to run a blanket 180ms fade;
@@ -1187,7 +1198,7 @@ export function House() {
                   <span className="block text-sm">Facebook ads</span>
                   <span className="mt-0.5 block text-xs text-muted">Tracking in History and Statistics. On until you turn it off.</span>
                 </span>
-                <span className={`grid h-7 w-12 place-items-center rounded-full text-xs ${adsOn ? "text-[#f6f3ec]" : "bg-canvas text-muted"}`} style={adsOn ? { background: "#7d5a86" } : undefined}>{adsOn ? "On" : "Off"}</span>
+                <span className={`grid h-7 w-12 place-items-center rounded-full text-xs ${adsOn ? "text-[#f6f3ec]" : "bg-canvas text-muted"}`} style={adsOn ? { background: litTone("#7d5a86") } : undefined}>{adsOn ? "On" : "Off"}</span>
               </button>
             </SettingFold>
             <SettingFold title="Backup" icon={<DatabaseBackup className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("backup")} onToggle={() => setOpenSettings((current) => current.includes("backup") ? current.filter((id) => id !== "backup") : [...current, "backup"])}>
@@ -1432,7 +1443,7 @@ function SalesBoard({ title, rows }: { title: string; rows: SaleLine[] }) {
 }
 
 function Ring({ title, parts }: { title: string; parts: { label: string; value: number; color: string }[] }) {
-  const shown = parts.filter((part) => part.value > 0);
+  const shown = parts.filter((part) => part.value > 0).map((part) => ({ ...part, color: litTone(part.color) }));
   const total = shown.reduce((sum, part) => sum + part.value, 0);
   const radius = 42;
   const turn = 2 * Math.PI * radius;
@@ -1604,7 +1615,7 @@ function HistoryChip({
   value,
   hint,
   icon: Icon,
-  tone,
+  tone: rawTone,
   pressed,
   onClick,
 }: {
@@ -1616,6 +1627,7 @@ function HistoryChip({
   pressed: boolean;
   onClick: () => void;
 }) {
+  const tone = litTone(rawTone);
   return (
     <RippleButton
       ink={tone}
@@ -1645,7 +1657,7 @@ function Summary({
   value,
   hint,
   icon: Icon,
-  tone,
+  tone: rawTone,
   pressed,
   dimmed,
   onClick,
@@ -1662,6 +1674,7 @@ function Summary({
   // Faro's Central logic (its .lenses): with nothing picked, every chip wears
   // its colour at full beauty; picking one keeps it lit (deeper wash + ring)
   // and the rest humble themselves — opacity .62, saturate(.7).
+  const tone = litTone(rawTone);
   return (
     <RippleButton
       ink={tone}
@@ -1830,8 +1843,8 @@ function Performance({ pieces, focus }: { pieces: Piece[]; focus?: "revenue" | "
         <>
           {focus ? null : (
             <div className="mt-3 flex gap-4 text-[11px] text-muted">
-              <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full" style={{ background: "#b08a3e" }} /> In</span>
-              <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full" style={{ background: "#5f8f72" }} /> Left</span>
+              <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full" style={{ background: litTone("#b08a3e") }} /> In</span>
+              <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full" style={{ background: litTone("#5f8f72") }} /> Left</span>
             </div>
           )}
           <div className="mt-3 overflow-x-auto">
@@ -1849,7 +1862,7 @@ function Performance({ pieces, focus }: { pieces: Piece[]; focus?: "revenue" | "
                             className="col-fill w-full rounded-md"
                             style={{
                               height: `${Math.max(amount > 0 ? 8 : 0, Math.round((Math.max(0, amount) / peak) * 100))}%`,
-                              background: label === "Left" ? "#5f8f72" : "#b08a3e",
+                              background: label === "Left" ? litTone("#5f8f72") : litTone("#b08a3e"),
                               animationDelay: `${Math.min(index * 35, 210)}ms`,
                             }}
                           />
@@ -2173,7 +2186,7 @@ function AdBoard({ ads, pieces }: { ads: Ad[]; pieces: Piece[] }) {
 }
 
 function AdsWidget({ ads, pieces, onChange }: { ads: Ad[]; pieces: Piece[]; onChange: (ads: Ad[]) => void }) {
-  const tone = "#7d5a86";
+  const tone = litTone("#7d5a86");
   const [open, setOpen] = useState(false);
   const [pick, setPick] = useState("new");
   const [product, setProduct] = useState("");

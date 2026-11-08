@@ -135,6 +135,30 @@
   --v-danger-soft: #3a2628;
 }
 
+/* Tron — the same theme Faro and Weekly wear, adapted to Ventory's tokens.
+   The palette is the family's: the Grid's near-black blue (#02060c, the
+   chrome colour both apps agree on), Weekly's deep-blue panels, cyan
+   #00e5ff light-lines with a white-hot core, and Ares red kept rare for
+   danger. The skin rules live at the end of this file. */
+[data-theme="tron"] {
+  color-scheme: dark;
+  --v-canvas: #02060c;
+  --v-panel: #061220;
+  --v-panel-2: #0a1c2e;
+  --v-ink: #e6faff;
+  --v-muted: #8fb6c8;
+  --v-faint: #5d7d87;
+  --v-line: rgba(0, 229, 255, 0.3);
+  --v-accent: #00e5ff;
+  --v-accent-ink: #001319;
+  --v-accent-soft: #062734;
+  --v-danger: #ff5148;
+  --v-danger-soft: #2e0f10;
+  --font-display: "Orbitron", "Fraunces", Palatino, serif;
+  --font-sans: "Exo 2", "Outfit", "Avenir Next", sans-serif;
+  scrollbar-color: rgba(0, 229, 255, 0.45) #02060c;
+}
+
 @layer base {
   button:not(:disabled),
   [role="button"]:not(:disabled) {
@@ -288,4 +312,115 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .ventory-ripple { animation: none; }
+}
+
+/* =====================================================================
+   Tron skin (1.0.12) — ported from Faro's tron.css and Weekly's
+   tron-14.css, retargeted to Ventory's surfaces. Skin only: colour,
+   light and one travelling light. No layout changes, and every other
+   theme is untouched. Fixed hues (chips, rings, Advisor) are lit in JS
+   by lib/ventory/tones.ts, Faro's tronize() adapted.
+   ===================================================================== */
+
+/* The world: a storm-lit sky, circuit traces and the Grid under
+   everything, all fixed behind the content (Weekly's shell recipe). */
+[data-theme="tron"] body {
+  background-color: #02060c;
+  background-image:
+    radial-gradient(120% 40% at 50% 112%, rgba(0, 200, 255, 0.18), transparent 60%),
+    radial-gradient(70% 26% at 18% -4%, rgba(0, 229, 255, 0.14), transparent 62%),
+    linear-gradient(rgba(0, 229, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 229, 255, 0.07) 1px, transparent 1px),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cg fill='none' stroke='%2300e5ff' stroke-opacity='0.16' stroke-width='1'%3E%3Cpath d='M12 48H78V96H140'/%3E%3Cpath d='M36 168H110V72'/%3E%3Cpath d='M150 28V84H196'/%3E%3Cpath d='M168 150H210'/%3E%3C/g%3E%3Ccircle cx='78' cy='48' r='2' fill='%2300e5ff' fill-opacity='0.45'/%3E%3Ccircle cx='140' cy='96' r='2' fill='%2300e5ff' fill-opacity='0.35'/%3E%3Ccircle cx='110' cy='72' r='2' fill='%2300e5ff' fill-opacity='0.35'/%3E%3C/svg%3E");
+  background-size: auto, auto, 44px 44px, 44px 44px, 220px 220px;
+  background-attachment: fixed;
+}
+/* The Grid floor in perspective, running to the horizon (Faro's floor).
+   Kept inside the viewport (overflow clip) so it never widens the page. */
+html[data-theme="tron"],
+html[data-theme="tron"] body { overflow-x: clip; }
+[data-theme="tron"] body::before,
+[data-theme="tron"] body::after { content: ""; position: fixed; left: 0; right: 0; pointer-events: none; z-index: -1; }
+/* Horizon glow line. */
+[data-theme="tron"] body::before {
+  top: 30vh; height: 22vh;
+  background:
+    linear-gradient(180deg, transparent 48%, rgba(120, 225, 250, 0.55) 50%, transparent 52%),
+    radial-gradient(40% 70% at 50% 50%, rgba(0, 229, 255, 0.26), transparent 70%);
+  opacity: 0.8;
+}
+[data-theme="tron"] body::after {
+  bottom: 0; height: 62vh;
+  background-image:
+    linear-gradient(rgba(0, 229, 255, 0.32) 1.5px, transparent 1.5px),
+    linear-gradient(90deg, rgba(0, 229, 255, 0.32) 1.5px, transparent 1.5px);
+  background-size: 44px 44px;
+  background-position: center top;
+  transform: perspective(320px) rotateX(62deg);
+  transform-origin: 50% 0;
+  -webkit-mask: linear-gradient(180deg, transparent 0%, #000 45%);
+          mask: linear-gradient(180deg, transparent 0%, #000 45%);
+  opacity: 0.5;
+}
+
+/* Header and dock: black glass edged with a light line (Faro's chrome). */
+[data-theme="tron"] .shelf-top {
+  background: linear-gradient(180deg, rgba(3, 9, 12, 0.97), rgba(6, 16, 20, 0.94));
+  box-shadow: 0 1px 0 rgba(120, 225, 250, 0.5), 0 8px 18px -10px rgba(0, 229, 255, 0.35);
+}
+[data-theme="tron"] .shelf-dock {
+  background: linear-gradient(0deg, rgba(3, 9, 12, 0.97), rgba(6, 16, 20, 0.94));
+  box-shadow: 0 -1px 0 rgba(120, 225, 250, 0.5), 0 -8px 18px -10px rgba(0, 229, 255, 0.35);
+}
+/* A light cycle crosses the header's edge every few seconds. It runs
+   only while the app is visible and never under reduced motion — the
+   same discipline Faro and Weekly keep (html[data-hidden] is set by
+   spa/main.tsx, Weekly's tron-fx pattern). */
+@media (prefers-reduced-motion: no-preference) {
+  html[data-theme="tron"]:not([data-hidden="true"]) .shelf-top::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    bottom: -1px;
+    width: 24%;
+    height: 2px;
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, #00e5ff 55%, #e6faff);
+    filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.8));
+    animation: tron-cycle 6.5s linear infinite;
+  }
+}
+@keyframes tron-cycle {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(430%); }
+}
+
+/* The wordmark, lit like Weekly's: a white-hot core in cyan light. */
+[data-theme="tron"] .wordmark {
+  color: #dffbff;
+  text-shadow:
+    0 0 2px rgba(255, 255, 255, 0.9),
+    0 0 8px rgba(0, 229, 255, 0.9),
+    0 0 18px rgba(0, 229, 255, 0.6),
+    0 0 36px rgba(0, 229, 255, 0.4);
+}
+[data-theme="tron"] .wordmark svg {
+  filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.55));
+}
+
+/* Primary buttons carry the light with them. */
+[data-theme="tron"] :is(button, a).bg-accent {
+  box-shadow: 0 0 14px rgba(0, 229, 255, 0.35), inset 0 0 0 1px rgba(230, 250, 255, 0.25);
+}
+
+/* Photos sit in a light frame on the Grid. */
+[data-theme="tron"] .framed {
+  border-color: rgba(0, 229, 255, 0.4);
+  box-shadow:
+    0 0 18px -6px rgba(0, 229, 255, 0.45),
+    inset 0 0 0 1px rgba(230, 250, 255, 0.08);
+}
+
+[data-theme="tron"] ::selection {
+  background: rgba(0, 229, 255, 0.35);
 }

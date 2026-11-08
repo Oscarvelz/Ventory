@@ -9,7 +9,7 @@ export function Mark({ className = "size-8" }: { className?: string }) {
 
 export function Wordmark({ className }: { className?: string }) {
   return (
-    <span className={`inline-flex items-baseline text-ink ${className ?? ""}`} aria-label="Ventory">
+    <span className={`wordmark inline-flex items-baseline text-ink ${className ?? ""}`} aria-label="Ventory">
       <Mark className="-mr-[0.12em] h-[0.72em] w-auto shrink-0" />
       <span className="font-display leading-none tracking-tight" aria-hidden="true">
         entory
