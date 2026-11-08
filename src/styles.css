@@ -286,6 +286,45 @@
   from { opacity: 0; transform: translateY(6px); }
 }
 
+/* Chart motion (1.1.0), the same register: lines draw through their own
+   dash (pathLength 1), areas fade in under them, dots pop where the value
+   already sits, SVG columns grow from their base, the gauge sweeps to its
+   settled dash. From-only keyframes; nothing here under reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .line-draw {
+    stroke-dasharray: 1;
+    animation: line-draw 1100ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .chart-fade {
+    animation: chart-fade 900ms ease-out 350ms both;
+  }
+  .dot-pop {
+    animation: dot-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  .col-fill-svg {
+    animation: col-grow 650ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    transform-box: fill-box;
+    transform-origin: bottom;
+  }
+  .gauge-grow {
+    animation: gauge-grow 1000ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+@keyframes line-draw {
+  from { stroke-dashoffset: 1; }
+}
+@keyframes chart-fade {
+  from { opacity: 0; }
+}
+@keyframes dot-pop {
+  from { opacity: 0; transform: scale(0.3); }
+}
+@keyframes gauge-grow {
+  from { stroke-dasharray: 0 1; }
+}
+
 /* Top wordmark and bottom shelf. Transform hides them; it does not free the layout. */
 .shelf-top,
 .shelf-dock {

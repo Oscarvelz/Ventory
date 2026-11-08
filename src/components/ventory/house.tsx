@@ -1,10 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Archive, BadgeCheck, Car, Check, ChevronDown, CircleAlert, CircleDollarSign, ClipboardPaste, Clock, DatabaseBackup, Footprints, Funnel, Glasses, House as HomeIcon, ImagePlus, LayoutGrid, List, Megaphone, Moon, Package, Palette, Pin, Plus, RectangleHorizontal, Rows2, ShieldCheck, Shirt, ShoppingBag, SlidersHorizontal, Sun, Trash2, TrendingUp, Truck, Watch } from "lucide-react";
+import { Archive, BadgeCheck, Car, Check, ChevronDown, CircleAlert, CircleDollarSign, ClipboardPaste, Clock, DatabaseBackup, FileDown, Footprints, Funnel, Glasses, House as HomeIcon, ImagePlus, LayoutGrid, List, Megaphone, Moon, Package, Palette, Pin, Plus, RectangleHorizontal, Rows2, ShieldCheck, Shirt, ShoppingBag, SlidersHorizontal, Sun, Trash2, TrendingUp, Truck, Watch } from "lucide-react";
 import { AccountCard, FingerprintControl, SignOutCard } from "@/lib/auth/gates";
 import { daysHeld, dollarsToCents, effectiveCostCents, emptyInput, money, priceCutCents, PROBLEMS, profitOf, STATUS_LABEL, STATUSES, todayISO, unitProfitCents, type Ad, type Piece, type PieceInput, type Status } from "@/lib/ventory/model";
 import { buildAdvice } from "@/lib/ventory/advisor";
 import { AdvisorView, type AdviceFocus } from "@/components/ventory/Advisor";
 import { TrayImport, type TrayPayload } from "@/components/ventory/TrayImport";
+import { AgeColumns, Bars, Count, Delta, Gauge, Histogram, Kicker, Segmented, Spark, Split, Trend } from "@/components/ventory/charts";
+import { ExportCenter } from "@/components/ventory/ExportCenter";
+import { ageTone, cash, compare, measure, pct, series, sizeName, TONES } from "@/lib/ventory/metrics";
 import { convertToUs } from "@/lib/ventory/sizes";
 import { addSamples, applyTrayImport, clearSelected, createCheckpoint, deleteAd, deletePiece, importPieces, isLegacySample, loadFloor, removeSamples, replaceFloor, sampleSetSize, saveAd, saveAds, saveMark, savePiece, saveTheme } from "@/lib/ventory/server";
 import { asTheme, isLightTheme, LIGHT_THEMES, THEMES, type ThemeId } from "@/lib/ventory/themes";
@@ -268,6 +271,7 @@ export function House() {
   const [statsReady, setStatsReady] = useState(false);
   const [view, setView] = useState<View>("floor");
   const [desk, setDesk] = useState<Desk>("stats");
+  const [exporting, setExporting] = useState(false);
   const [chip, setChip] = useState<Shelf>("live");
   const [lens, setLens] = useState<Lens | null>(null);
   const [past, setPast] = useState<"sold" | "archived">("sold");
@@ -898,7 +902,7 @@ export function House() {
         </section>
 
         <section className={panel("ledger")}>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
             {([
               ["stats", "Statistics"],
               ["advisor", "Advisor"],
@@ -913,105 +917,18 @@ export function House() {
                 {label}
               </RippleButton>
             ))}
+            <RippleButton
+              aria-label="Export a report"
+              onClick={() => setExporting(true)}
+              className="press inline-flex h-11 items-center gap-2 rounded-2xl border border-line/70 px-3.5 text-sm font-medium text-muted"
+            >
+              <FileDown className="size-[18px]" strokeWidth={1.75} />
+              <span className="hidden sm:inline">Export</span>
+            </RippleButton>
           </div>
+          {exporting ? <ExportCenter pieces={pieces} ads={adsOn ? ads : []} advice={brief} onClose={() => setExporting(false)} onDone={setNotice} /> : null}
           {desk === "stats" ? (
-            <div className="piece mt-4 space-y-3">
-              <StatFold
-                title="Numbers"
-                line={brief.lines.numbers}
-                open={openStats.includes("numbers") || pinnedStats.includes("numbers")}
-                pinned={pinnedStats.includes("numbers")}
-                onToggle={() => {
-                  if (pinnedStats.includes("numbers")) return;
-                  setOpenStats((current) => current.includes("numbers") ? current.filter((item) => item !== "numbers") : [...current, "numbers"]);
-                }}
-                onPin={() => {
-                  setPinnedStats((current) => current.includes("numbers") ? current.filter((item) => item !== "numbers") : [...current, "numbers"]);
-                  setOpenStats((current) => current.includes("numbers") ? current : [...current, "numbers"]);
-                }}
-              >
-                <div className="grid grid-cols-2 gap-2">
-                  <Figure label="Taken in" value={money(stats.revenue)} cents={stats.revenue} />
-                  <Figure label="Left after cost" value={money(stats.profit)} negative={stats.profit < 0} cents={stats.profit} />
-                  <Exact label="Cost of sales" value={money(stats.cost)} />
-                  <Exact label="Margin" value={picture.margin == null ? "—" : `${picture.margin}%`} />
-                  <Exact label="Average sale" value={pricedQty ? money(Math.round(stats.revenue / pricedQty)) : "—"} />
-                  <Exact label="Given in price cuts" value={money(givenAway)} />
-                  <Exact label="Pieces sold" value={String(stats.sold)} />
-                  <Exact label="Sales with no price" value={String(stats.unpriced)} />
-                  <Exact label="On hand" value={String(stats.available)} />
-                  <Exact label="On the way" value={String(stats.incoming)} />
-                  <Exact label="Still tied up" value={money(stats.tied)} />
-                  <Exact label="In the archive" value={String(picture.archived)} />
-                  <Exact label="Average hold" value={picture.avgHold == null ? "—" : `${picture.avgHold}d`} />
-                  <Exact label="Longest still here" value={picture.oldest == null ? "—" : `${picture.oldest}d`} />
-                  <Exact label="Open problems" value={String(picture.problems)} />
-                  <Exact label="Home / car" value={`${picture.home} / ${picture.car}`} />
-                </div>
-              </StatFold>
-              <StatFold
-                title="This stretch against the last"
-                line={brief.lines.stretch}
-                open={openStats.includes("stretch") || pinnedStats.includes("stretch")}
-                pinned={pinnedStats.includes("stretch")}
-                onToggle={() => {
-                  if (pinnedStats.includes("stretch")) return;
-                  setOpenStats((current) => current.includes("stretch") ? current.filter((item) => item !== "stretch") : [...current, "stretch"]);
-                }}
-                onPin={() => {
-                  setPinnedStats((current) => current.includes("stretch") ? current.filter((item) => item !== "stretch") : [...current, "stretch"]);
-                  setOpenStats((current) => current.includes("stretch") ? current : [...current, "stretch"]);
-                }}
-              >
-                <div className="grid grid-cols-2 gap-2">
-                  <Exact label={datedWeeks.at(-1) ? `${datedWeeks.at(-1)?.label} in` : "This week in"} value={datedWeeks.at(-1) ? money(datedWeeks.at(-1)?.revenue ?? 0) : "—"} />
-                  <Exact label={datedWeeks.at(-2) ? `${datedWeeks.at(-2)?.label} in` : "Week before"} value={datedWeeks.at(-2) ? money(datedWeeks.at(-2)?.revenue ?? 0) : "—"} />
-                  <Exact label="This week left" value={datedWeeks.at(-1) ? money(datedWeeks.at(-1)?.profit ?? 0) : "—"} />
-                  <Exact label="Week before left" value={datedWeeks.at(-2) ? money(datedWeeks.at(-2)?.profit ?? 0) : "—"} />
-                  <Exact label={datedMonths.at(-1) ? `${datedMonths.at(-1)?.label} in` : "This month in"} value={datedMonths.at(-1) ? money(datedMonths.at(-1)?.revenue ?? 0) : "—"} />
-                  <Exact label={datedMonths.at(-2) ? `${datedMonths.at(-2)?.label} in` : "Month before"} value={datedMonths.at(-2) ? money(datedMonths.at(-2)?.revenue ?? 0) : "—"} />
-                  <Exact label="This month left" value={datedMonths.at(-1) ? money(datedMonths.at(-1)?.profit ?? 0) : "—"} />
-                  <Exact label="Month before left" value={datedMonths.at(-2) ? money(datedMonths.at(-2)?.profit ?? 0) : "—"} />
-                  <Exact label="Sales this week" value={String(datedWeeks.at(-1)?.count ?? 0)} />
-                  <Exact label="Sales this month" value={String(datedMonths.at(-1)?.count ?? 0)} />
-                </div>
-              </StatFold>
-              <StatFold title="Over time" line={brief.lines.time} open={openStats.includes("time") || pinnedStats.includes("time")} pinned={pinnedStats.includes("time")} onToggle={() => foldStat("time")} onPin={() => pinStat("time")}>
-                <Performance pieces={pieces} />
-              </StatFold>
-              <StatFold title="By product" line={brief.lines.product} open={openStats.includes("product") || pinnedStats.includes("product")} pinned={pinnedStats.includes("product")} onToggle={() => foldStat("product")} onPin={() => pinStat("product")}>
-                <SalesBoard title="Sales by product" rows={countedLines} />
-              </StatFold>
-              <StatFold title="Where they are" line={brief.lines.where} open={openStats.includes("where") || pinnedStats.includes("where")} pinned={pinnedStats.includes("where")} onToggle={() => foldStat("where")} onPin={() => pinStat("where")}>
-                <Ring title="Where they are" parts={[
-                  { label: "On hand", value: stats.available, color: "#5f8f72" },
-                  { label: "Incoming", value: stats.incoming, color: "#5d86ad" },
-                  { label: "Sold", value: picture.soldNow, color: "#c47b4a" },
-                  { label: "Archive", value: picture.archived, color: "#4f7f8a" },
-                ]} />
-              </StatFold>
-              <StatFold title="Sizes" line={brief.lines.sizes} open={openStats.includes("sizes") || pinnedStats.includes("sizes")} pinned={pinnedStats.includes("sizes")} onToggle={() => foldStat("sizes")} onPin={() => pinStat("sizes")}>
-                <div className="space-y-2">
-                  <Columns title="Sizes still here" rows={picture.sizesHere} empty="No pairs on the floor yet." />
-                  <Columns title="Sizes that already sold" rows={picture.sizesSold} empty="No sales to measure yet." />
-                </div>
-              </StatFold>
-              <StatFold title="Bought from" line={brief.lines.sources} open={openStats.includes("sources") || pinnedStats.includes("sources")} pinned={pinnedStats.includes("sources")} onToggle={() => foldStat("sources")} onPin={() => pinStat("sources")}>
-                <Columns title="Bought from" rows={picture.sources} empty="No sources yet." />
-              </StatFold>
-              <StatFold title="Home or car" line={brief.lines.place} open={openStats.includes("place") || pinnedStats.includes("place")} pinned={pinnedStats.includes("place")} onToggle={() => foldStat("place")} onPin={() => pinStat("place")}>
-                <Ring title="Where the live pairs are" parts={[
-                  { label: "Home", value: picture.home, color: "#5f8f72" },
-                  { label: "Car", value: picture.car, color: "#5d86ad" },
-                  { label: "Not marked", value: picture.loose, color: "#b08a3e" },
-                ]} />
-              </StatFold>
-              {adsOn ? (
-                <StatFold title="Ads" line={brief.lines.ads} open={openStats.includes("ads") || pinnedStats.includes("ads")} pinned={pinnedStats.includes("ads")} onToggle={() => foldStat("ads")} onPin={() => pinStat("ads")}>
-                  <AdBoard ads={ads} pieces={pieces} />
-                </StatFold>
-              ) : null}
-            </div>
+            <StatsDesk pieces={pieces} ads={ads} adsOn={adsOn} lines={brief.lines} openStats={openStats} pinnedStats={pinnedStats} foldStat={foldStat} pinStat={pinStat} />
           ) : (
             <AdvisorView
               advice={brief}
@@ -1421,13 +1338,25 @@ function shortMoney(cents: number) {
   return `$${Math.round(amount)}`;
 }
 
-function SalesBoard({ title, rows }: { title: string; rows: SaleLine[] }) {
+function SalesBoard({ title, rows, bare }: { title: string; rows: SaleLine[]; bare?: boolean }) {
   return (
-    <div className="framed mt-4 rounded-3xl bg-panel p-4">
-      <p className="text-xs font-medium tracking-wide text-faint uppercase">{title}</p>
-      {rows.length === 0 ? <p className="mt-3 text-sm text-muted">No sales to compare yet.</p> : (
+    <div className={bare ? "" : "framed mt-4 rounded-3xl bg-panel p-4"}>
+      {bare ? null : <p className="text-xs font-medium tracking-wide text-faint uppercase">{title}</p>}
+      {rows.length === 0 ? <p className={`${bare ? "" : "mt-3 "}text-sm text-muted`}>No sales to compare yet.</p> : bare ? (
+        <ul className="border-t border-line">
+          {rows.map((row, index) => (
+            <li key={row.name} className="row-in flex items-baseline justify-between gap-3 border-b border-line py-2.5 last:border-b-0" style={{ animationDelay: `${Math.min(index * 35, 350)}ms` }}>
+              <span className="min-w-0">
+                <span className="block text-sm text-ink">{row.name}</span>
+                <span className="block text-xs tabular-nums text-muted">{row.count} sold · {cash(row.revenue)} in{row.unpriced ? ` · ${row.unpriced} with no price` : ""}</span>
+              </span>
+              <span className={`shrink-0 font-display text-lg leading-none tabular-nums ${row.profit < 0 ? "text-danger" : ""}`}>{cash(row.profit)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
         <>
-          <div className="mt-3 grid grid-cols-[1fr_2.75rem_4.75rem_4.75rem] gap-2 border-b border-line pb-2 text-[10px] font-medium tracking-widest text-faint uppercase">
+          <div className={`${bare ? "" : "mt-3 "}grid grid-cols-[1fr_2.75rem_4.75rem_4.75rem] gap-2 border-b border-line pb-2 text-[10px] font-medium tracking-widest text-faint uppercase`}>
             <span>Product</span>
             <span className="text-right">Sold</span>
             <span className="text-right">In</span>
@@ -1437,7 +1366,7 @@ function SalesBoard({ title, rows }: { title: string; rows: SaleLine[] }) {
             {rows.map((row, index) => (
               <li key={row.name} className="row-in grid grid-cols-[1fr_2.75rem_4.75rem_4.75rem] items-baseline gap-2 py-2 text-sm" style={{ animationDelay: `${Math.min(index * 45, 270)}ms` }}>
                 <span className="min-w-0">
-                  <span className="block truncate">{row.name}</span>
+                  <span className="block">{row.name}</span>
                   {row.unpriced ? <span className="block text-[10px] text-muted">{row.unpriced} no price</span> : null}
                 </span>
                 <span className="text-right tabular-nums">{row.count}</span>
@@ -1452,17 +1381,17 @@ function SalesBoard({ title, rows }: { title: string; rows: SaleLine[] }) {
   );
 }
 
-function Ring({ title, parts }: { title: string; parts: { label: string; value: number; color: string }[] }) {
+function Ring({ title, parts, bare }: { title: string; parts: { label: string; value: number; color: string }[]; bare?: boolean }) {
   const shown = parts.filter((part) => part.value > 0).map((part) => ({ ...part, color: litTone(part.color) }));
   const total = shown.reduce((sum, part) => sum + part.value, 0);
   const radius = 42;
   const turn = 2 * Math.PI * radius;
   let walked = 0;
   return (
-    <div className="rounded-3xl border border-line bg-panel p-4">
-      <p className="text-xs font-medium tracking-wide text-faint uppercase">{title}</p>
-      {total === 0 ? <p className="mt-3 text-sm text-muted">Nothing to measure yet.</p> : (
-        <div className="mt-3 flex items-center gap-4">
+    <div className={bare ? "" : "rounded-3xl border border-line bg-panel p-4"}>
+      {bare ? null : <p className="text-xs font-medium tracking-wide text-faint uppercase">{title}</p>}
+      {total === 0 ? <p className={`${bare ? "" : "mt-3 "}text-sm text-muted`}>Nothing to measure yet.</p> : (
+        <div className={`${bare ? "" : "mt-3 "}flex items-center gap-4`}>
           <div className="relative size-24 shrink-0">
             <svg viewBox="0 0 120 120" className="size-24 -rotate-90">
               <circle cx="60" cy="60" r={radius} fill="none" stroke="var(--v-panel-2)" strokeWidth="12" />
@@ -1502,7 +1431,7 @@ function Ring({ title, parts }: { title: string; parts: { label: string; value: 
               <li key={part.label} className="flex items-center justify-between gap-2 text-sm">
                 <span className="flex min-w-0 items-center gap-2">
                   <span className="size-2.5 shrink-0 rounded-full" style={{ background: part.color }} />
-                  <span className="truncate">{part.label}</span>
+                  <span>{part.label}</span>
                 </span>
                 <span className="tabular-nums text-muted">{part.value} · {Math.round((part.value / total) * 100)}%</span>
               </li>
@@ -1746,7 +1675,7 @@ function StatFold({ title, open, pinned, onToggle, onPin, line, children }: { ti
           <ChevronDown className={`size-4 shrink-0 self-center text-muted transition-transform ${open ? "" : "-rotate-90"}`} strokeWidth={1.75} />
           <span className="min-w-0 flex-1">
             <span className="block truncate font-display text-base leading-tight">{title}</span>
-            {!open && line ? <span className="mt-0.5 line-clamp-2 block text-xs leading-snug text-muted">{line}</span> : null}
+            {!open && line ? <span className="mt-0.5 block text-xs leading-snug text-muted">{line}</span> : null}
           </span>
         </button>
         <button type="button" aria-label={pinned ? "Unpin" : "Pin open"} aria-pressed={pinned} onClick={onPin} className={`press grid size-8 shrink-0 place-items-center self-center rounded-full ${pinned ? "text-accent" : "text-muted"}`}>
@@ -2173,18 +2102,18 @@ function soldInWindow(ad: Ad, pieces: Piece[]) {
   return pieces.some((piece) => piece.name.trim().toLowerCase() === ad.product.trim().toLowerCase() && !!piece.soldOn && piece.soldOn >= (ad.startedOn ?? "") && piece.soldOn <= end && (piece.status === "sold" || piece.wasSold));
 }
 
-function AdBoard({ ads, pieces }: { ads: Ad[]; pieces: Piece[] }) {
+function AdBoard({ ads, pieces, bare }: { ads: Ad[]; pieces: Piece[]; bare?: boolean }) {
   const spent = ads.reduce((sum, ad) => sum + ad.spentCents, 0);
   const worked = ads.filter((ad) => ad.worked === "yes").length;
   const missed = ads.filter((ad) => ad.worked === "no").length;
   const days = ads.map(adSpan).filter((value): value is number => value != null);
   const average = days.length ? Math.round(days.reduce((sum, value) => sum + value, 0) / days.length) : null;
   return (
-    <div className="rounded-3xl border border-line bg-panel p-4">
-      <p className="text-xs font-medium tracking-wide text-faint uppercase">Ads</p>
-      {ads.length === 0 ? <p className="mt-3 text-sm text-muted">No promotion logged yet. Record it from History.</p> : (
+    <div className={bare ? "" : "rounded-3xl border border-line bg-panel p-4"}>
+      {bare ? null : <p className="text-xs font-medium tracking-wide text-faint uppercase">Ads</p>}
+      {ads.length === 0 ? <p className="text-sm text-muted">No promotion logged yet. Record it from History.</p> : (
         <>
-          <p className="mt-2 font-display text-3xl tabular-nums">{money(spent)}</p>
+          <p className={`${bare ? "" : "mt-2 "}font-display text-3xl tabular-nums`}>{money(spent)}</p>
           <p className="mt-1 text-sm text-muted">{worked} worked · {missed} did not · {average == null ? "no dates" : `${average}d average`}</p>
           <ul className="mt-3 space-y-2.5">
             {ads.map((ad, index) => {
@@ -2192,7 +2121,7 @@ function AdBoard({ ads, pieces }: { ads: Ad[]; pieces: Piece[] }) {
               return (
                 <li key={ad.id} className="row-in flex items-baseline justify-between gap-3 text-sm" style={{ animationDelay: `${Math.min(index * 45, 270)}ms` }}>
                   <span className="min-w-0">
-                    <span className="block truncate">{ad.product}</span>
+                    <span className="block">{ad.product}</span>
                     <span className="block text-xs text-muted">{span == null ? "No dates" : `${span}d`} · {ad.worked === "yes" ? "Worked" : ad.worked === "no" ? "Did not" : "Running"} · {soldInWindow(ad, pieces) ? "Sale landed" : "No sale"}</span>
                   </span>
                   <span className="shrink-0 tabular-nums">{money(ad.spentCents)}</span>
@@ -2562,4 +2491,272 @@ function compressPhoto(file: File) {
     };
     image.src = url;
   });
+}
+
+/* ======================================================================
+   Statistics desk (1.1.0) — the professional pass Oscar asked for: every
+   fold now carries the chart its fact needs (a timeline for money over
+   time, ranked bars for what earns, an age ramp for stock, a gauge for
+   sell-through, a histogram for days to sell), read from one shared
+   reading of the floor (lib/ventory/metrics.ts) that the PDF and the
+   worksheet print too. The folds, pins and remembered open state are the
+   1.0 desk's own; charts sit straight on their fold, never in a second
+   frame; names are never cut. Motion: the house's from-only keyframes,
+   nothing under reduced motion.
+   ====================================================================== */
+type FoldState = { openStats: string[]; pinnedStats: string[]; foldStat: (id: string) => void; pinStat: (id: string) => void };
+
+function DeskFold({ s, id, title, line, children }: { s: FoldState; id: string; title: string; line?: string; children: ReactNode }) {
+  return (
+    <StatFold title={title} line={line} open={s.openStats.includes(id) || s.pinnedStats.includes(id)} pinned={s.pinnedStats.includes(id)} onToggle={() => s.foldStat(id)} onPin={() => s.pinStat(id)}>
+      {children}
+    </StatFold>
+  );
+}
+
+function StatsDesk({
+  pieces,
+  ads,
+  adsOn,
+  lines,
+  openStats,
+  pinnedStats,
+  foldStat,
+  pinStat,
+}: {
+  pieces: Piece[];
+  ads: Ad[];
+  adsOn: boolean;
+  lines: Record<string, string>;
+  openStats: string[];
+  pinnedStats: string[];
+  foldStat: (id: string) => void;
+  pinStat: (id: string) => void;
+}) {
+  const m = useMemo(() => measure(pieces, adsOn ? ads : []), [pieces, ads, adsOn]);
+  const months = useMemo(() => series(m.sales, "month", { limit: 12 }), [m.sales]);
+  const week = useMemo(() => compare(m.sales, "week"), [m.sales]);
+  const month = useMemo(() => compare(m.sales, "month"), [m.sales]);
+  const [lens, setLens] = useState<"category" | "product" | "brand">("product");
+  const stockUnits = m.units.onHand + m.units.incoming;
+  const st = { openStats, pinnedStats, foldStat, pinStat };
+  const earnRows = (lens === "category" ? m.byCategory : lens === "brand" ? m.byBrand : m.byProduct)
+    .filter((row) => row.soldUnits > 0)
+    .map((row) => ({ label: row.label, value: row.profit, text: cash(row.profit), negative: row.profit < 0, sub: `${row.soldUnits} sold${row.margin != null ? ` · ${pct(row.margin)}` : ""}` }));
+  const brandsKnown = m.byBrand.some((row) => row.label !== "No brand");
+  const quick = m.byProduct.filter((row) => row.soldUnits >= 2 && row.avgDays != null).sort((a, b) => (a.avgDays ?? 0) - (b.avgDays ?? 0));
+  const channels = m.byChannel.filter((row) => row.label !== "Not recorded");
+  const clients = m.byClient.filter((row) => row.label !== "Not recorded").sort((a, b) => b.revenue - a.revenue || b.soldUnits - a.soldUnits);
+  const sources = m.bySource.filter((row) => row.label !== "Not recorded");
+  const hue = [TONES.amber, TONES.green, TONES.blue, TONES.copper, TONES.teal, TONES.plum];
+  const best = m.byProduct.filter((row) => row.soldUnits > 0)[0];
+  const oldest = m.aging.oldest[0];
+  const late = m.aging.buckets.filter((b) => b.min > 90).reduce((sum, b) => sum + b.units, 0);
+  const lateCost = m.aging.buckets.filter((b) => b.min > 90).reduce((sum, b) => sum + b.cost, 0);
+  const sizeRows = m.bySize
+    .slice()
+    .sort((a, b) => b.soldUnits - a.soldUnits || b.stockUnits - a.stockUnits || a.label.localeCompare(b.label))
+    .map((row) => ({ label: row.label, value: row.soldUnits, text: `${row.soldUnits} sold`, sub: `${row.stockUnits} left${row.sellThrough != null ? ` · ${pct(row.sellThrough)}` : ""}` }));
+  const topSize = m.bySize.filter((row) => row.label !== "No size").sort((a, b) => b.soldUnits - a.soldUnits)[0];
+
+  return (
+    <div className="piece mt-4 space-y-3">
+      <section className="advice-hero framed rounded-3xl bg-panel p-5">
+        <Kicker>Statistics · {m.units.sold} {m.units.sold === 1 ? "sale" : "sales"} counted</Kicker>
+        <div className="mt-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+          <div className="min-w-0">
+            <p className="text-sm text-muted">Left after cost</p>
+            <p className={`mt-1 font-display text-5xl leading-none tracking-tight tabular-nums ${m.profit < 0 ? "text-danger" : ""}`}>
+              <Count value={m.profit} format={(n) => cash(Math.round(n))} final={cash(m.profit)} />
+            </p>
+          </div>
+          <p className="pb-1 text-sm text-muted">
+            <span className="tabular-nums text-ink">{cash(m.revenue)}</span> came in · <span className="tabular-nums text-ink">{pct(m.margin)}</span> margin
+          </p>
+        </div>
+        {months.length > 1 ? (
+          <div className="mt-4">
+            <Spark values={months.map((row) => row.profit)} />
+            <div className="mt-1 flex justify-between text-[11px] text-faint">
+              <span>{months[0].label}</span>
+              <span>Left after cost, month by month</span>
+              <span>{months[months.length - 1].label}</span>
+            </div>
+          </div>
+        ) : null}
+        <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-4 border-t border-line pt-4 sm:grid-cols-4">
+          {[
+            { k: "Sell-through", v: pct(m.sellThrough), s: `${m.units.sold} of ${m.units.sold + stockUnits} pieces` },
+            { k: "Days to sell", v: m.days.median == null ? "—" : `${m.days.median} d`, s: m.days.n ? `median of ${m.days.n} dated` : "no dated sale yet" },
+            { k: "Stock at cost", v: cash(m.stockCost, true), s: `${stockUnits} ${stockUnits === 1 ? "piece" : "pieces"} waiting` },
+            { k: "Average sale", v: m.avgSale == null ? "—" : cash(m.avgSale), s: m.avgProfit == null ? "no priced sale" : `${cash(m.avgProfit)} left each` },
+          ].map((item, index) => (
+            <div key={item.k} className="row-in min-w-0" style={{ animationDelay: `${120 + index * 60}ms` }}>
+              <dt className="text-[11px] font-medium tracking-[0.12em] whitespace-nowrap text-faint uppercase">{item.k}</dt>
+              <dd className="mt-1 font-display text-2xl leading-none tabular-nums">{item.v}</dd>
+              <dd className="mt-1 text-xs text-muted">{item.s}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+
+      <DeskFold s={st} id="time" title="Over time" line={lines.time}>
+        <Trend sales={m.sales} />
+      </DeskFold>
+
+      <DeskFold s={st} id="earns" title="What earns" line={best ? `${best.label} leads with ${cash(best.profit)} left after cost from ${best.soldUnits} ${best.soldUnits === 1 ? "sale" : "sales"}.` : "Nothing has sold yet, so nothing can be ranked."}>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-muted">Left after cost, with pieces sold and margin</p>
+          <Segmented value={lens} onChange={setLens} label="Rank by" options={[{ id: "product", label: "Product" }, { id: "category", label: "Type" }, { id: "brand", label: "Brand" }]} />
+        </div>
+        {lens === "brand" && !brandsKnown ? <p className="text-sm text-muted">No piece carries a brand yet. Add brands on the cards and this ranks them.</p> : <Bars key={lens} rows={earnRows} empty="No sales to rank yet." />}
+      </DeskFold>
+
+      <DeskFold s={st} id="numbers" title="Numbers" line={lines.numbers}>
+        <dl className="grid gap-x-6 sm:grid-cols-2">
+          {[
+            ["Taken in", cash(m.revenue)],
+            ["Left after cost", cash(m.profit)],
+            ["Cost of sales", cash(m.costOfSales)],
+            ["Margin", pct(m.margin)],
+            ["Average sale", m.avgSale == null ? "—" : cash(m.avgSale)],
+            ["Given in price cuts", cash(m.priceCuts)],
+            ["Pieces sold", String(m.units.sold)],
+            ["Sales with no price", String(m.units.unpriced)],
+            ["On hand", String(m.units.onHand)],
+            ["On the way", String(m.units.incoming)],
+            ["Still tied up", cash(m.stockCost)],
+            ["In the archive", String(m.units.archived)],
+            ["Average hold", m.days.avg == null ? "—" : `${m.days.avg} d`],
+            ["Longest still here", oldest ? `${oldest.days} d` : "—"],
+            ["Open problems", String(m.units.problems)],
+            ["Kept for yourself", String(m.units.kept)],
+          ].map(([label, value], index) => (
+            <div key={label} className="row-in flex items-baseline justify-between gap-3 border-b border-line py-2" style={{ animationDelay: `${Math.min(index * 25, 300)}ms` }}>
+              <dt className="min-w-0 text-sm text-muted">{label}</dt>
+              <dd className={`shrink-0 font-display text-lg leading-none tabular-nums ${label === "Left after cost" && m.profit < 0 ? "text-danger" : ""}`}>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      </DeskFold>
+
+      <DeskFold s={st} id="stretch" title="This stretch against the last" line={lines.stretch}>
+        {[{ name: "This week against the week before", c: week }, { name: "This month against the month before", c: month }].map(({ name, c }) => (
+          <div key={name} className="mb-3 last:mb-0">
+            <Kicker className="mb-1">{name}</Kicker>
+            {c.now ? (
+              <>
+                <Delta label="Taken in" now={c.now.revenue} before={c.before?.revenue ?? null} format={(n) => cash(n, true)} />
+                <Delta label="Left after cost" now={c.now.profit} before={c.before?.profit ?? null} format={(n) => cash(n, true)} />
+                <Delta label="Sales" now={c.now.units} before={c.before?.units ?? null} format={(n) => String(n)} />
+              </>
+            ) : <p className="text-sm text-muted">No dated sale yet.</p>}
+          </div>
+        ))}
+      </DeskFold>
+
+      <DeskFold s={st} id="pace" title="How fast they sell" line={m.days.median == null ? "A sale needs both its arrival and its sale date to time it." : `Half your sales left within ${m.days.median} days of arriving. ${pct(m.sellThrough)} of what you bought has sold.`}>
+        <Gauge value={m.sellThrough} label="Sell-through" caption={`${m.units.sold} sold of the ${m.units.sold + stockUnits} pieces bought and still counted. Kept and removed pieces stay out.`} />
+        {m.days.n ? (
+          <div className="mt-5">
+            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3">
+              <Kicker>Days from arrival to sale</Kicker>
+              <span className="text-xs text-muted tabular-nums">median {m.days.median} d · fastest {m.days.fastest} d · slowest {m.days.slowest} d</span>
+            </div>
+            <Histogram rows={m.days.buckets} />
+          </div>
+        ) : null}
+        {quick.length ? (
+          <div className="mt-5">
+            <Kicker className="mb-2">Quickest to sell, two sales or more</Kicker>
+            <Bars rows={quick.map((row) => ({ label: row.label, value: row.avgDays ?? 0, text: `${row.avgDays} d`, sub: `${row.soldUnits} sold`, tone: TONES.teal }))} limit={5} />
+          </div>
+        ) : null}
+      </DeskFold>
+
+      <DeskFold s={st} id="aging" title="How old the stock is" line={m.units.onHand === 0 ? "Nothing on hand." : late ? `${late} on hand ${late === 1 ? "has" : "have"} sat past 90 days, ${cash(lateCost, true)} at cost.` : `Nothing on hand has sat past 90 days.${m.aging.avg != null ? ` The average piece has waited ${m.aging.avg} days.` : ""}`}>
+        <AgeColumns buckets={m.aging.buckets} />
+        <p className="mt-3 text-sm text-muted">Pieces on hand by days since they arrived, with their cost under each column.{m.aging.undated ? ` ${m.aging.undated} ${m.aging.undated === 1 ? "has" : "have"} no arrival date and stay out.` : ""}</p>
+        {m.aging.oldest.length ? (
+          <ul className="mt-3 border-t border-line">
+            {m.aging.oldest.slice(0, 5).map(({ piece, days }, index) => (
+              <li key={piece.id} className="row-in flex items-center justify-between gap-3 border-b border-line py-2.5 last:border-b-0" style={{ animationDelay: `${index * 45}ms` }}>
+                <span className="min-w-0">
+                  <span className="block text-sm text-ink">{piece.name}</span>
+                  <span className="block text-xs tabular-nums text-muted">{[sizeName(piece), `cost ${cash(piece.costCents)}`, piece.askCents ? `asking ${cash(piece.askCents)}` : "no ask yet"].filter(Boolean).join(" · ")}</span>
+                </span>
+                <span className="shrink-0 rounded-full px-2.5 py-1 text-xs font-medium tabular-nums" style={{ background: `color-mix(in srgb, ${litTone(ageTone(days))} 24%, transparent)`, color: "var(--v-ink)" }}>{days} d</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </DeskFold>
+
+      <DeskFold s={st} id="stock" title="Stock in money" line={stockUnits ? `${cash(m.stockCost, true)} is waiting on the shelf and on the way.${m.stockAsk ? ` At their asks, the priced pieces would bring ${cash(m.stockAsk, true)}.` : ""}` : "No stock waiting."}>
+        <Split parts={[
+          { label: "On hand", value: m.onHandCost, tone: TONES.green, text: cash(m.onHandCost, true) },
+          { label: "On the way", value: m.incomingCost, tone: TONES.blue, text: cash(m.incomingCost, true) },
+        ]} />
+        {m.stockAsk ? (
+          <p className="mt-3 text-sm leading-relaxed text-muted">
+            If every priced piece sells at its ask: <span className="tabular-nums text-ink">{cash(m.stockAsk, true)}</span> in, <span className="tabular-nums text-ink">{cash(m.stockAsk - m.stockAskCost, true)}</span> over its cost.{m.unaskedUnits ? ` ${m.unaskedUnits} ${m.unaskedUnits === 1 ? "piece has" : "pieces have"} no asking price yet.` : ""}
+          </p>
+        ) : null}
+        <div className="mt-4">
+          <Kicker className="mb-2">Where the money waits</Kicker>
+          <Bars rows={m.byProduct.filter((row) => row.stockUnits > 0).sort((a, b) => b.stockCost - a.stockCost).map((row) => ({ label: row.label, value: row.stockCost, text: cash(row.stockCost, true), sub: `${row.stockUnits} ${row.stockUnits === 1 ? "piece" : "pieces"}`, tone: TONES.amber }))} empty="Nothing waiting." />
+        </div>
+      </DeskFold>
+
+      <DeskFold s={st} id="product" title="By product" line={lines.product}>
+        <SalesBoard title="Sales by product" rows={salesOf(m.sales)} bare />
+      </DeskFold>
+
+      <DeskFold s={st} id="sizes" title="Sizes" line={topSize && topSize.soldUnits > 1 ? `${topSize.label} sold most: ${topSize.soldUnits} times, ${topSize.stockUnits} still here.` : lines.sizes}>
+        <Bars rows={sizeRows} tone={TONES.blue} limit={8} empty="No sizes yet." />
+      </DeskFold>
+
+      <DeskFold s={st} id="channels" title="Channels and clients" line={channels.length ? `${channels[0].label} brought the most: ${cash(channels[0].revenue, true)}.` : "No sale names where it sold yet. Add the channel when you mark a sale and this shows where the money comes from."}>
+        {channels.length ? (
+          <div className="mb-4">
+            <Kicker className="mb-2">Where they sold, by money in</Kicker>
+            <Split parts={channels.slice(0, 6).map((row, i) => ({ label: row.label, value: row.revenue, tone: hue[i % hue.length], text: cash(row.revenue, true) }))} />
+          </div>
+        ) : null}
+        <div>
+          <Kicker className="mb-2">Clients</Kicker>
+          {clients.length ? (
+            <Bars rows={clients.map((row) => ({ label: row.label, value: row.revenue, text: cash(row.revenue, true), sub: `${row.soldUnits} ${row.soldUnits === 1 ? "buy" : "buys"}`, tone: TONES.copper }))} limit={5} />
+          ) : <p className="text-sm text-muted">No sale names its buyer yet.</p>}
+        </div>
+      </DeskFold>
+
+      <DeskFold s={st} id="sources" title="Bought from" line={sources.length ? (sources.some((row) => row.soldUnits) ? `${sources.slice().sort((a, b) => b.soldUnits - a.soldUnits)[0].label} has sold the most of what it supplied.` : lines.sources) : "No piece names where it was bought yet."}>
+        <Bars rows={sources.map((row) => ({ label: row.label, value: row.soldUnits + row.stockUnits, text: `${row.soldUnits} sold of ${row.soldUnits + row.stockUnits}`, sub: row.margin != null ? `${pct(row.margin)} margin` : "no sale yet", tone: TONES.teal }))} empty="Add where you bought a piece and this compares your sources." />
+      </DeskFold>
+
+      <DeskFold s={st} id="where" title="Where they are" line={lines.where}>
+        <Ring bare title="Where they are" parts={[
+          { label: "On hand", value: m.units.onHand, color: "#5f8f72" },
+          { label: "Incoming", value: m.units.incoming, color: "#5d86ad" },
+          { label: "Sold", value: pieces.filter((piece) => piece.status === "sold").reduce((sum, piece) => sum + piece.qty, 0), color: "#c47b4a" },
+          { label: "Archive", value: m.units.archived, color: "#4f7f8a" },
+        ]} />
+      </DeskFold>
+
+      <DeskFold s={st} id="place" title="Home or car" line={lines.place}>
+        <Ring bare title="Where the live pairs are" parts={[
+          { label: "Home", value: m.stock.filter((piece) => piece.place === "home").reduce((sum, piece) => sum + piece.qty, 0), color: "#5f8f72" },
+          { label: "Car", value: m.stock.filter((piece) => piece.place === "car").reduce((sum, piece) => sum + piece.qty, 0), color: "#5d86ad" },
+          { label: "Not marked", value: m.stock.filter((piece) => !piece.place).reduce((sum, piece) => sum + piece.qty, 0), color: "#b08a3e" },
+        ]} />
+      </DeskFold>
+
+      {adsOn ? (
+        <DeskFold s={st} id="ads" title="Ads" line={lines.ads}>
+          <AdBoard ads={ads} pieces={pieces} bare />
+        </DeskFold>
+      ) : null}
+    </div>
+  );
 }
