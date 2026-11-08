@@ -415,9 +415,19 @@ html[data-theme="tron"] body { overflow-x: clip; }
     pointer-events: none;
     background: linear-gradient(90deg, transparent, #ffb21e 55%, #fff1c4);
     filter: drop-shadow(0 0 6px rgba(255, 178, 30, 0.8));
-    animation: tron-cycle 6.5s linear infinite;
+    animation: tron-cycle-amber 6.5s linear infinite;
     animation-delay: -3.25s;
   }
+}
+/* The amber cycle needs its OWN track (1.0.16, from Oscar's screenshot):
+   translateX percentages are of the element's own width, so the teal
+   keyframes (430% of a 22%-wide cycle ≈ past the edge) strand a 14%-wide
+   amber at ~74% of the header — it vanished mid-line instead of sweeping
+   off the phone's edge. 730% of 14% carries it fully across, at the same
+   ground speed as the teal. */
+@keyframes tron-cycle-amber {
+  from { transform: translateX(-115%); }
+  to { transform: translateX(730%); }
 }
 
 /* Type, reparted (1.0.14): Orbitron carries the wordmark and the short

@@ -1,12 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Archive, BadgeCheck, Car, Check, ChevronDown, CircleAlert, CircleDollarSign, ClipboardPaste, Clock, DatabaseBackup, Footprints, Funnel, Glasses, House as HomeIcon, ImagePlus, LayoutGrid, List, Megaphone, Moon, Package, Palette, Pin, Plus, RectangleHorizontal, Rows2, ShieldCheck, Shirt, ShoppingBag, SlidersHorizontal, Sun, Trash2, TrendingUp, Truck, Watch } from "lucide-react";
 import { AccountCard, FingerprintControl, SignOutCard } from "@/lib/auth/gates";
-import { daysHeld, dollarsToCents, emptyInput, money, PROBLEMS, STATUS_LABEL, STATUSES, todayISO, type Ad, type Piece, type PieceInput, type Status } from "@/lib/ventory/model";
+import { daysHeld, dollarsToCents, effectiveCostCents, emptyInput, money, priceCutCents, PROBLEMS, profitOf, STATUS_LABEL, STATUSES, todayISO, unitProfitCents, type Ad, type Piece, type PieceInput, type Status } from "@/lib/ventory/model";
 import { buildAdvice } from "@/lib/ventory/advisor";
 import { AdvisorView, type AdviceFocus } from "@/components/ventory/Advisor";
-import { parseFloorNotes } from "@/lib/ventory/paste";
+import { TrayImport, type TrayPayload } from "@/components/ventory/TrayImport";
 import { convertToUs } from "@/lib/ventory/sizes";
-import { addSamples, clearSelected, createCheckpoint, deleteAd, deletePiece, importPieces, isLegacySample, loadFloor, removeSamples, replaceFloor, sampleSetSize, saveAd, saveAds, saveMark, savePiece, saveTheme } from "@/lib/ventory/server";
+import { addSamples, applyTrayImport, clearSelected, createCheckpoint, deleteAd, deletePiece, importPieces, isLegacySample, loadFloor, removeSamples, replaceFloor, sampleSetSize, saveAd, saveAds, saveMark, savePiece, saveTheme } from "@/lib/ventory/server";
 import { asTheme, isLightTheme, LIGHT_THEMES, THEMES, type ThemeId } from "@/lib/ventory/themes";
 import { tone as litTone, toneInk } from "@/lib/ventory/tones";
 import { syncBarsNow } from "@/spa/native";
@@ -90,10 +90,11 @@ function salesOf(pieces: Piece[]): SaleLine[] {
     row.count += piece.qty;
     if (piece.saleCents == null) row.unpriced += piece.qty;
     else {
-      const revenue = piece.saleCents * piece.qty;
-      const cost = Math.max(0, piece.costCents - piece.discountCents) * piece.qty;
-      row.revenue += revenue;
-      row.profit += revenue - cost;
+      const moneyIn = profitOf(piece);
+      if (moneyIn) {
+        row.revenue += moneyIn.revenue;
+        row.profit += moneyIn.profit;
+      }
     }
     map.set(name, row);
   }
@@ -101,10 +102,8 @@ function salesOf(pieces: Piece[]): SaleLine[] {
 }
 
 function take(piece: Piece) {
-  if (piece.saleCents == null) return null;
-  const cost = Math.max(0, piece.costCents - piece.discountCents) * piece.qty;
-  const revenue = piece.saleCents * piece.qty;
-  return { revenue, profit: revenue - cost };
+  const moneyIn = profitOf(piece);
+  return moneyIn ? { revenue: moneyIn.revenue, profit: moneyIn.profit } : null;
 }
 
 type Grain = "week" | "month" | "year";
@@ -184,7 +183,7 @@ function advise(pieces: Piece[], ads: Ad[]): Note[] {
 
   const priced = sold.filter((piece) => piece.saleCents != null);
   const revenue = priced.reduce((sum, piece) => sum + (piece.saleCents ?? 0) * piece.qty, 0);
-  const cost = priced.reduce((sum, piece) => sum + Math.max(0, piece.costCents - piece.discountCents) * piece.qty, 0);
+  const cost = priced.reduce((sum, piece) => sum + effectiveCostCents(piece) * piece.qty, 0);
   if (revenue > 0) {
     const margin = Math.round(((revenue - cost) / revenue) * 100);
     notes.push({
@@ -229,7 +228,7 @@ function advise(pieces: Piece[], ads: Ad[]): Note[] {
     });
   }
 
-  const discount = sold.reduce((sum, piece) => sum + piece.discountCents * piece.qty, 0);
+  const discount = sold.reduce((sum, piece) => sum + priceCutCents(piece) * piece.qty, 0);
   if (discount > 0) notes.push({ title: "Given away", body: `Discounts have taken ${money(discount)} off the sales you recorded.` });
 
   const unpriced = sold.length - priced.length;
@@ -438,7 +437,7 @@ export function House() {
     const sold = pieces.filter(isSale);
     const priced = sold.filter((piece) => piece.saleCents != null);
     const revenue = priced.reduce((sum, piece) => sum + (piece.saleCents ?? 0) * piece.qty, 0);
-    const cost = priced.reduce((sum, piece) => sum + Math.max(0, piece.costCents - piece.discountCents) * piece.qty, 0);
+    const cost = priced.reduce((sum, piece) => sum + effectiveCostCents(piece) * piece.qty, 0);
     const tied = pieces.filter((piece) => piece.status === "available" || piece.status === "incoming").reduce((sum, piece) => sum + piece.costCents * piece.qty, 0);
     return { available, incoming, sold: sold.reduce((sum, piece) => sum + piece.qty, 0), revenue, profit: revenue - cost, tied, unpriced: sold.length - priced.length, cost };
   }, [pieces]);
@@ -469,7 +468,7 @@ export function House() {
   const datedMonths = periodsOf(pieces, "month").filter((row) => row.stamp > 0);
   const datedWeeks = periodsOf(pieces, "week").filter((row) => row.stamp > 0);
   const pricedQty = pieces.filter((piece) => isSale(piece) && piece.saleCents != null).reduce((sum, piece) => sum + piece.qty, 0);
-  const givenAway = pieces.filter(isSale).reduce((sum, piece) => sum + piece.discountCents * piece.qty, 0);
+  const givenAway = pieces.filter(isSale).reduce((sum, piece) => sum + priceCutCents(piece) * piece.qty, 0);
   const sitting = (status: "available" | "incoming") => pieces.filter((piece) => piece.status === status).reduce((sum, piece) => sum + piece.costCents * piece.qty, 0);
 
   useEffect(() => {
@@ -937,7 +936,7 @@ export function House() {
                   <Exact label="Cost of sales" value={money(stats.cost)} />
                   <Exact label="Margin" value={picture.margin == null ? "—" : `${picture.margin}%`} />
                   <Exact label="Average sale" value={pricedQty ? money(Math.round(stats.revenue / pricedQty)) : "—"} />
-                  <Exact label="Given in discounts" value={money(givenAway)} />
+                  <Exact label="Given in price cuts" value={money(givenAway)} />
                   <Exact label="Pieces sold" value={String(stats.sold)} />
                   <Exact label="Sales with no price" value={String(stats.unpriced)} />
                   <Exact label="On hand" value={String(stats.available)} />
@@ -1089,6 +1088,17 @@ export function House() {
                     if (rows.every((row) => row.status === "archived")) setChip("archived");
                     setEditor(null);
                     setEditorFocus(null);
+                    setView("floor");
+                  });
+                }
+          }
+          onTray={
+            editor.id
+              ? undefined
+              : (payload) => {
+                  void applyTrayImport({ data: { add: payload.add, update: payload.update } }).then((next) => {
+                    setPieces(next);
+                    setNotice(`Imported ${payload.add.length} pieces${payload.update.length ? ` · completed ${payload.update.length} already on the floor` : ""}`);
                     setView("floor");
                   });
                 }
@@ -1898,7 +1908,7 @@ function LatestSales({ pieces, onOpen }: { pieces: Piece[]; onOpen: (piece: Piec
   return (
     <ul className="space-y-2">
       {latest.map((piece) => {
-        const profit = piece.saleCents == null ? null : piece.saleCents * piece.qty - Math.max(0, piece.costCents - piece.discountCents) * piece.qty;
+        const profit = profitOf(piece)?.profit ?? null;
         return (
           <li key={piece.id}>
             <button type="button" onClick={() => onOpen(piece)} className="press flex w-full items-center justify-between gap-3 rounded-2xl border border-line bg-panel px-4 py-3 text-left">
@@ -1989,7 +1999,7 @@ function PieceCard({
   const held = daysHeld(piece.receivedOn, piece.soldOn);
   const problem = PROBLEMS.find((item) => item.id === piece.problem);
   const Portrait = typeIcon(piece);
-  const profit = piece.saleCents == null ? null : piece.saleCents - Math.max(0, piece.costCents - piece.discountCents);
+  const profit = unitProfitCents(piece);
   const actions: { key: string; label: string; icon: typeof Check; onClick: () => void; tone?: "accent" | "danger" }[] = [
     { key: "sold", label: "Sold", icon: BadgeCheck, onClick: () => onStatus("sold"), tone: piece.status === "sold" ? "accent" : undefined },
     { key: "incoming", label: "Coming", icon: Truck, onClick: () => onStatus("incoming"), tone: piece.status === "incoming" ? "accent" : undefined },
@@ -2337,7 +2347,7 @@ function Overlay({ children, onClose }: { children: ReactNode; onClose: () => vo
   );
 }
 
-function Editor({ initial, known = [], focus = null, onClose, onSave, onImport }: { initial: PieceInput; known?: Piece[]; focus?: AdviceFocus | null; onClose: () => void; onSave: (input: PieceInput) => void; onImport?: (rows: PieceInput[]) => void }) {
+function Editor({ initial, known = [], focus = null, onClose, onSave, onImport, onTray }: { initial: PieceInput; known?: Piece[]; focus?: AdviceFocus | null; onClose: () => void; onSave: (input: PieceInput) => void; onImport?: (rows: PieceInput[]) => void; onTray?: (payload: TrayPayload) => void }) {
   const [draft, setDraft] = useState(initial);
   const [batch, setBatch] = useState(false);
   const set = (patch: Partial<PieceInput>) => setDraft((current) => ({ ...current, ...patch }));
@@ -2355,7 +2365,7 @@ function Editor({ initial, known = [], focus = null, onClose, onSave, onImport }
         <div className="flex min-w-0 items-center gap-3">
           <p className="font-display text-3xl">{batch ? "Add a batch" : draft.id ? "Edit piece" : "Add a piece"}</p>
         </div>
-        {onImport ? (
+        {onImport || onTray ? (
           <button
             type="button"
             aria-label={batch ? "Add one piece" : "Add a batch"}
@@ -2367,8 +2377,8 @@ function Editor({ initial, known = [], focus = null, onClose, onSave, onImport }
           </button>
         ) : null}
       </div>
-      {batch && onImport ? (
-        <PasteImport onImport={onImport} />
+      {batch && onTray ? (
+        <TrayImport pieces={known} onApply={onTray} onImportCsv={onImport} onClose={onClose} />
       ) : (
       <form
         className="mt-4 grid gap-3"
@@ -2459,6 +2469,14 @@ function Editor({ initial, known = [], focus = null, onClose, onSave, onImport }
             <input inputMode="decimal" defaultValue={(draft.askCents / 100).toFixed(2)} onChange={(event) => set({ askCents: dollarsToCents(event.target.value) })} className={control} />
           </Field>
         </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Rebate back (buying)">
+            <input inputMode="decimal" defaultValue={(draft.buyRebateCents / 100).toFixed(2)} onChange={(event) => set({ buyRebateCents: dollarsToCents(event.target.value) })} className={control} />
+          </Field>
+          <Field label="Delivery charged">
+            <input inputMode="decimal" defaultValue={(draft.deliveryCents / 100).toFixed(2)} onChange={(event) => set({ deliveryCents: dollarsToCents(event.target.value) })} className={control} />
+          </Field>
+        </div>
         <Field id="editor-source" label="Bought from">
           <input value={draft.source} onChange={(event) => set({ source: event.target.value })} placeholder="Shein, Temu, Amazon" className={control} />
         </Field>
@@ -2522,79 +2540,6 @@ function Field({ label, children, id }: { label: string; children: ReactNode; id
       <span className="text-muted">{label}</span>
       <div className="mt-1">{children}</div>
     </label>
-  );
-}
-
-function PasteImport({ onImport }: { onImport: (rows: PieceInput[]) => void }) {
-  const [text, setText] = useState("");
-  const [soldBatch, setSoldBatch] = useState(false);
-  return (
-    <div className="mt-4">
-      <div className="flex gap-2">
-        {([
-          [false, "Available"],
-          [true, "Already sold"],
-        ] as const).map(([sold, label]) => (
-          <button
-            key={label}
-            type="button"
-            aria-pressed={soldBatch === sold}
-            onClick={() => setSoldBatch(sold)}
-            className={`press h-9 rounded-full border px-3 text-sm ${soldBatch === sold ? "border-accent bg-accent-soft" : "border-line"}`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <p className="mt-3 text-sm text-muted">
-        {soldBatch
-          ? "Paste sold pairs. They go to the archive. The sale date, the final price, and the difference still count."
-          : "Paste the note as you write it. A title, then one line per piece. Lines that say Sold go to Sold. The rest stay Available."}
-      </p>
-      <textarea
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        className="mt-3 h-40 w-full rounded-2xl border border-line bg-canvas p-3 text-sm outline-none focus:border-accent"
-        placeholder={"Yellow Detail Classic Cowboy Design - Ramón\n_ 44 = 9.5 ($19) *Home* for — AddedAug28 - Sold\n_ 42 = 8.5 ($18) *Home* for — AddedAug29 - Sold"}
-      />
-      <button
-        type="button"
-        className="press mt-3 h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-ink"
-        onClick={() => {
-          const ledger = parseFloorNotes(text, new Date(), soldBatch);
-          if (ledger.length) {
-            onImport(ledger);
-            return;
-          }
-          const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-          if (!lines.length) return;
-          const headers = lines[0].split(/,|\t/).map((cell) => cell.trim().toLowerCase());
-          const start = headers.some((cell) => cell.includes("name")) ? 1 : 0;
-          const rows = lines.slice(start).map((line) => {
-            const cells = line.split(/,|\t/).map((cell) => cell.trim());
-            const pick = (name: string, index: number) => {
-              const at = headers.findIndex((cell) => cell.includes(name));
-              return cells[at >= 0 ? at : index] ?? "";
-            };
-            const size = pick("size", 1);
-            const system = size.toUpperCase().includes("CN") ? "CN" : size.toUpperCase().includes("EU") ? "EU" : "US";
-            const base = emptyInput();
-            return {
-              ...base,
-              name: pick("name", 0),
-              sizeSystem: system,
-              sizeLabel: size.replace(/cn|eu|us/gi, "").trim(),
-              costCents: dollarsToCents(pick("cost", 2)),
-              source: pick("source", 3) || pick("from", 3),
-              receivedOn: pick("date", 4) || base.receivedOn,
-            };
-          }).filter((row) => row.name);
-          if (rows.length) onImport(rows);
-        }}
-      >
-        Import rows
-      </button>
-    </div>
   );
 }
 

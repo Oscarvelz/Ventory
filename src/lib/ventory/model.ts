@@ -24,7 +24,14 @@ export type Piece = {
   costCents: number;
   askCents: number;
   saleCents: number | null;
-  discountCents: number;
+  /** Money back on the PURCHASE (wholesale rebate / supplier credit). It lowers what the piece
+   *  effectively cost; it is never a cut on the selling price. (Was `discountCents` before 1.0.16:
+   *  the old field mixed both meanings, so "discounts" raised profit in some sums and lowered it in
+   *  others. Old records are migrated on read — see toPiece/clean in src/spa/api.ts.) */
+  buyRebateCents: number;
+  /** Delivery charged to the client on top of the price. It is collected in the operation, but it is
+   *  not part of the piece's price and never enters the piece's profit. Client overpay rides here too. */
+  deliveryCents: number;
   source: string;
   channel: string;
   clientName: string;
@@ -39,6 +46,40 @@ export type Piece = {
 };
 
 export type PieceInput = Omit<Piece, "id" | "sort"> & { id?: string };
+
+/** What a piece effectively cost after the purchase rebate came back. Never below zero. */
+export function effectiveCostCents(piece: { costCents: number; buyRebateCents: number }) {
+  return Math.max(0, piece.costCents - piece.buyRebateCents);
+}
+
+/**
+ * The price cut is DERIVED, never stored: what was asked minus what was actually charged.
+ * Zero when the ask is unknown (a cut cannot be derived from a missing ask).
+ */
+export function priceCutCents(piece: { askCents: number; saleCents: number | null }) {
+  if (piece.saleCents == null || piece.askCents <= 0) return 0;
+  return Math.max(0, piece.askCents - piece.saleCents);
+}
+
+/** Per-unit profit in cents, or null when the piece has no sale price yet. */
+export function unitProfitCents(piece: Piece): number | null {
+  if (piece.saleCents == null) return null;
+  return piece.saleCents - effectiveCostCents(piece);
+}
+
+/**
+ * THE profit function (1.0.16). Every surface that talks about profit uses this one:
+ * revenue is the price charged for the piece (delivery is NOT revenue of the piece),
+ * cost is the effective cost (sticker cost minus the purchase rebate), and `collected`
+ * is everything that actually came in on the operation, delivery included.
+ */
+export function profitOf(piece: Piece) {
+  const unit = unitProfitCents(piece);
+  if (unit == null || piece.saleCents == null) return null;
+  const revenue = piece.saleCents * piece.qty;
+  const cost = effectiveCostCents(piece) * piece.qty;
+  return { revenue, cost, profit: unit * piece.qty, collected: revenue + (piece.deliveryCents || 0) * piece.qty };
+}
 
 export function money(cents: number | null | undefined) {
   if (cents == null) return "—";
@@ -81,7 +122,8 @@ export function emptyInput(): PieceInput {
     costCents: 0,
     askCents: 0,
     saleCents: null,
-    discountCents: 0,
+    buyRebateCents: 0,
+    deliveryCents: 0,
     source: "",
     channel: "",
     clientName: "",

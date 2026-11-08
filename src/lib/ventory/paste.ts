@@ -59,10 +59,41 @@ export function parseAddedDate(token: string, today = new Date()) {
 }
 
 function placeOf(line: string): "" | "home" | "car" {
-  if (/🏡|🏠|🛖|\b(?:home|here)\b/i.test(line)) return "home";
-  if (/🚚|🚗|🚙|🛻|🚛|🏎️|🚘/.test(line)) return "car";
+  if (/🏡|🏠|🛖|🪹|\b(?:home|here)\b/i.test(line)) return "home";
+  // 1.0.16: vehicles are MARKS, not a place — in Oscar's notes they ride on the same line as
+  // "*Home*" dozens of times, so they cannot be where the piece is. Only the written word counts.
+  if (/\bcar\b/i.test(line)) return "car";
   return "";
 }
+
+const PLACE_MARKS = new Set(["🏡", "🏠", "🛖", "🪹"]);
+
+/**
+ * The marks on a line, kept verbatim (🥬💚, 🚚✨, 🛻🛻…), minus the ones that already mean
+ * something structural: the home emojis (place) and 💙 (the Coming signal). Never interpreted.
+ */
+function marksOf(line: string) {
+  const found: string[] = [];
+  let cluster = "";
+  const flush = () => {
+    if (!cluster) return;
+    const base = cluster.replace(/[\uFE0F\u200D]/g, "");
+    if (!PLACE_MARKS.has(base) && base !== "💙" && !found.includes(cluster)) found.push(cluster);
+    cluster = "";
+  };
+  for (const ch of line) {
+    if (/\p{Extended_Pictographic}/u.test(ch) || ch === "\uFE0F" || ch === "\u200D") cluster += ch;
+    else flush();
+  }
+  flush();
+  return found.join(" ");
+}
+
+/** A death in the family, written into the notebook. It dates the batch; it is never piece data. */
+const PERSONAL_RE = /(mi\s+t[ií]a\s+ha\s+muerto|my\s+aunt\s+(?:has\s+)?died|ha\s+muerto|passed\s+away)/i;
+
+const FAILED_SALE_RE = /\bno los quiso\b|\bno quiso\b|\bdid ?n[o']?t want\b|\brejected\b/i;
+const KEPT_RE = /\badded this to my wallet\b|\bto my wallet\b|\bfor myself\b|\bi'?m keeping\b|\bkeeping (?:it|this|them) for me\b|\bme lo quedo\b/i;
 
 function stripIndex(line: string) {
   let next = line.replace(/^[+#.\s]+/, "").replace(/^\d+(?:st|nd|rd|th)\.?\s+/i, "");
@@ -142,6 +173,123 @@ function isRow(body: string) {
   return /\d/.test(body) && (/\$/.test(body) || /\bsold\b/i.test(body) || /=/.test(body) || /\breal\b/i.test(body) || /\bwith\b/i.test(body) || /\bfor\b/i.test(body) || /\bused\b/i.test(body) || /equivalent/i.test(body) || /"|“|”/.test(body));
 }
 
+export type RowIssue =
+  | "bad-arithmetic"
+  | "uncertain-rebate"
+  | "rebate-no-amount"
+  | "true-cost"
+  | "coming-sold"
+  | "personal-note";
+
+const MINUS = "[\\-−–]";
+const AMT = "\\$\\s*([0-9]+(?:\\s*\\.\\s*[0-9]{1,2})?)";
+const AMT_LOOSE = "\\$?\\s*([0-9]+(?:\\s*\\.\\s*[0-9]{1,2})?)";
+const centsOf = (raw: string) => dollarsToCents(raw.replace(/\s+/g, ""));
+
+/**
+ * The PURCHASE rebate, read before the cost so its arithmetic can never leak into the size
+ * (the old parser turned "($11.48 − 3.91 = 7.57)" into a US size of 7.57). Five-plus written
+ * forms are recognised; anything doubtful is recorded AND flagged, never silently decided:
+ * an "off" bigger than the cost, arithmetic that does not square, a credit with no amount.
+ * Returns the line with every rebate span removed.
+ */
+function takeRebate(line: string) {
+  const issues: RowIssue[] = [];
+  const notes: string[] = [];
+  let next = line;
+  let rebate = 0;
+  let grossOverride: number | null = null;
+  let netBasisRebate = 0;
+  let pendingPercent: number | null = null;
+
+  const netFormula = (a: number, b: number, c: number) => {
+    grossOverride = a;
+    rebate += Math.max(0, a - c);
+    if (Math.abs(a - b - c) > 1) issues.push("bad-arithmetic");
+  };
+
+  // 1) "($A − B = C)" — the whole cost story inside one parenthesis. (The result often has no $.)
+  let match = next.match(new RegExp(`\\(\\s*${AMT}\\s*${MINUS}\\s*${AMT_LOOSE}\\s*=\\s*${AMT_LOOSE}\\s*\\)`, "i"));
+  if (match) {
+    netFormula(centsOf(match[1]), centsOf(match[2]), centsOf(match[3]));
+    next = next.replace(match[0], " ");
+  }
+  // 1b) "($A) = $C" — paid A, after an unnamed credit it stands at C.
+  if (grossOverride == null) {
+    match = next.match(new RegExp(`\\(\\s*${AMT}\\s*\\)\\s*=\\s*${AMT_LOOSE}`, "i"));
+    if (match) {
+      grossOverride = centsOf(match[1]);
+      rebate += Math.max(0, centsOf(match[1]) - centsOf(match[2]));
+      next = next.replace(match[0], " ");
+    }
+  }
+  // 2) "$A − B off = $C" — the same formula written bare.
+  if (grossOverride == null) {
+    match = next.match(new RegExp(`${AMT}\\s*${MINUS}\\s*${AMT_LOOSE}\\s*off\\s*=\\s*${AMT_LOOSE}`, "i"));
+    if (match) {
+      netFormula(centsOf(match[1]), centsOf(match[2]), centsOf(match[3]));
+      next = next.replace(match[0], " ");
+    }
+  }
+  // 3) "($A − $B credit)" — the parenthesis explains a NET cost written elsewhere on the line:
+  //    the rebate is real, but the cost figure is already after it, so the gross is rebuilt.
+  match = next.match(new RegExp(`\\(\\s*${AMT}\\s*${MINUS}\\s*${AMT}\\s*credit[^)]*\\)`, "i"));
+  if (match) {
+    netBasisRebate += centsOf(match[2]);
+    rebate += centsOf(match[2]);
+    next = next.replace(match[0], " ");
+  }
+  // 4) "$N off in credit to claim…" — a supplier credit, still to claim.
+  match = next.match(new RegExp(`${AMT}\\s*off\\s+in\\s+credit[^,.]*`, "i"));
+  if (match) {
+    rebate += centsOf(match[1]);
+    notes.push("Credit to claim");
+    next = next.replace(match[0], " ");
+  }
+  // 5) "P% off", with or without the amount written next to it.
+  match = next.match(new RegExp(`([0-9]+(?:\\.[0-9]+)?)\\s*%\\s*off(?:\\s*\\(\\s*${MINUS}\\s*${AMT}\\s*\\+?\\s*\\))?`, "i"));
+  if (match) {
+    notes.push(`${match[1]}% off`);
+    if (match[2]) rebate += centsOf(match[2]);
+    else pendingPercent = Number(match[1]);
+    next = next.replace(match[0], " ");
+  }
+  // 6) "($N credit)" — an amount, but nothing says whether the cost beside it is gross or net.
+  match = next.match(new RegExp(`\\(\\s*${AMT}\\s*credit[^)]*\\)`, "i"));
+  if (match) {
+    rebate += centsOf(match[1]);
+    issues.push("uncertain-rebate");
+    next = next.replace(match[0], " ");
+  }
+  // 7) "(−$N)" stuck to the cost, unexplained.
+  match = next.match(new RegExp(`\\(\\s*${MINUS}\\s*${AMT}\\s*\\)`, "i"));
+  if (match) {
+    rebate += centsOf(match[1]);
+    issues.push("uncertain-rebate");
+    next = next.replace(match[0], " ");
+  }
+  // 8) "− $N in discount" — the word is "discount", not "off".
+  match = next.match(new RegExp(`${MINUS}\\s*${AMT}\\s*in\\s+discount`, "i"));
+  if (match) {
+    rebate += centsOf(match[1]);
+    issues.push("uncertain-rebate");
+    next = next.replace(match[0], " ");
+  }
+  // 9) Plain "N off" — the canonical form.
+  match = next.match(new RegExp(`${AMT_LOOSE}\\s*off\\b`, "i"));
+  if (match) {
+    rebate += centsOf(match[1]);
+    next = next.replace(match[0], " ");
+  }
+  // 10) A credit named with NO amount (RewardsBack, Credit Reward): flagged, never invented.
+  if (/\bcredit\s*reward\b|\brewards?\s*back\b/i.test(next)) {
+    issues.push("rebate-no-amount");
+    notes.push("Credit reward (no amount)");
+    next = next.replace(/\bcredit\s*reward\b|\brewards?\s*back\b/gi, " ");
+  }
+  return { line: next, rebate, grossOverride, netBasisRebate, pendingPercent, issues, notes };
+}
+
 function takeCost(line: string) {
   const notes: string[] = [];
   let next = line.replace(/\(\s*\$\s*[0-9.]+\s*-\s*\$\s*[0-9.]+[^)]*\)/gi, " ");
@@ -167,32 +315,97 @@ function takeCost(line: string) {
   return { cents: 0, line: next, notes };
 }
 
+/**
+ * The selling money, 1.0.16. One "for $X" is read by CONTEXT (the caller decides): on a sold line
+ * it is what was charged, on an unsold line it is the ask — and the charged amount is never copied
+ * into the ask, or the derived price cut would be born at zero. Delivery is its own money: it is
+ * taken OUT of the line into `delivery`, never added into the price, and the original ask survives
+ * a "for $40 for $50 (delivery $10)" line because 50 − 40 is exactly the delivery.
+ */
 function takeSale(line: string) {
   const notes: string[] = [];
-  const net = line.match(/\bfor\s+\$\s*[0-9.]+\s*-\s*[0-9.]+\s*=\s*\$\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
-  let cents = net ? dollarsToCents(net[1]) : null;
-  if (cents == null) {
-    const amounts = [...line.matchAll(/\b(?:sold\s+)?for\s+\$\s*([0-9]+(?:\s*\.\s*[0-9]{1,2})?)/gi)];
-    cents = amounts.length ? dollarsToCents(amounts[amounts.length - 1][1].replace(/\s+/g, "")) : null;
+  let next = line;
+  let delivery = 0;
+  let askFromPrice: number | null = null;
+  let price: number | null = null;
+  let arrowSold = false;
+
+  const parenDelivery = next.match(/\(\s*delivery\s*\$\s*([0-9]+(?:\.[0-9]{1,2})?)\s*\)/i);
+  if (parenDelivery) {
+    delivery += dollarsToCents(parenDelivery[1]);
+    next = next.replace(parenDelivery[0], " ");
   }
-  if (cents == null && /\bsold\b/i.test(line)) {
-    const inn = line.match(/\bin\s+\$\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
-    if (inn) cents = dollarsToCents(inn[1]);
+  const plusDelivery = next.match(/\+\s*\$\s*([0-9]+(?:\.[0-9]{1,2})?)\s*delivery/i);
+  if (plusDelivery) {
+    delivery += dollarsToCents(plusDelivery[1]);
+    next = next.replace(plusDelivery[0], " ");
   }
-  const plus = line.match(/\+\s*\$\s*([0-9]+(?:\.[0-9]{1,2})?)\s*delivery/i);
-  if (plus && cents != null) {
-    cents += dollarsToCents(plus[1]);
-    notes.push(`Delivery $${plus[1]}`);
-  } else {
-    const delivery = line.match(/\(\s*delivery\s*\$\s*([0-9]+(?:\.[0-9]{1,2})?)\s*\)/i);
-    if (delivery) notes.push(`Delivery $${delivery[1]}`);
+  const barePlus = next.match(/\+\s*([0-9]+\.[0-9]{2})\s+to\b/i);
+  if (barePlus) {
+    delivery += dollarsToCents(barePlus[1]);
+    next = next.replace(barePlus[0], " ");
   }
-  return { cents, notes };
+
+  const arrow = next.match(/\bfor\s+\$\s*([0-9]+(?:\.[0-9]{1,2})?)\s*(?:→|->|➜|⟶)\s*\$\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+  if (arrow) {
+    askFromPrice = dollarsToCents(arrow[1]);
+    price = dollarsToCents(arrow[2]);
+    arrowSold = true;
+    next = next.replace(arrow[0], " ");
+  }
+  if (price == null) {
+    const net = next.match(/\bfor\s+\$\s*([0-9]+(?:\.[0-9]{1,2})?)\s*[-\u2212–]\s*[0-9.]+\s*=\s*\$\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+    if (net) {
+      askFromPrice = dollarsToCents(net[1]);
+      price = dollarsToCents(net[2]);
+      next = next.replace(net[0], " ");
+    }
+  }
+  if (price == null) {
+    const amounts = [...next.matchAll(/\b(?:sold\s+)?for\s+\$\s*([0-9]+(?:\s*\.\s*[0-9]{1,2})?)/gi)].map((m) => dollarsToCents(m[1].replace(/\s+/g, "")));
+    if (amounts.length >= 2 && delivery > 0 && amounts[amounts.length - 1] - amounts[0] === delivery) {
+      price = amounts[0];
+    } else if (amounts.length) {
+      price = amounts[amounts.length - 1];
+    }
+  }
+  if (price == null && /\bsold\b/i.test(next)) {
+    const inn = next.match(/\bin\s+\$\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+    if (inn) price = dollarsToCents(inn[1]);
+  }
+  // What the client actually handed over, when it is more than the price: the extra is collected
+  // money, so it rides with the delivery bucket — visible, and out of the piece's profit.
+  const handed = line.match(/(?:gave|paid)\s+me\s+\$\s*([0-9]+(?:\.[0-9]{1,2})?)/i) || line.match(/me\s+di[oó]\s+\$\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+  if (handed && price != null) {
+    const total = dollarsToCents(handed[1]);
+    if (total > price) {
+      delivery += total - price;
+      notes.push(`Paid extra $${((total - price) / 100).toFixed(2).replace(/\.00$/, "")}`);
+    }
+  }
+  return { price, askFromPrice, delivery, arrowSold, notes, line: next };
 }
 
 function takeSize(line: string) {
   const notes: string[] = [];
-  const clean = line.replace(/[“”"]/g, " ").replace(/\s+/g, " ").trim();
+  let clean = line.replace(/[“”"]/g, " ").replace(/\s+/g, " ").trim();
+  let bare = false;
+  // "BOX 9" is a size in its own right: capture it whole before the number hunt loses both halves.
+  let boxUs = "";
+  const boxMatch = clean.match(/\bBOX\s*([0-9]+(?:\.[0-9]+)?)/i);
+  if (boxMatch) {
+    boxUs = `BOX ${boxMatch[1]}`;
+    clean = clean.replace(boxMatch[0], " ").replace(/\s+/g, " ").trim();
+  }
+  // A written range ("8 a 8.5", "9.5 o 10", "9.5 0 10" — his 0 is the letter o): the first end is
+  // the size, the second is kept as an "or" note instead of being dropped.
+  let rangeAlt = "";
+  const sizeish = (v: number) => (v >= 4 && v <= 20) || (v >= 30 && v <= 60);
+  const range = clean.match(/(?<![\d$.])([0-9]+(?:\.[0-9]+)?)\s+(?:a|0|o|or)\s+([0-9]+(?:\.[0-9]+)?)(?![\d])/);
+  if (range && sizeish(Number(range[1])) && sizeish(Number(range[2]))) {
+    rangeAlt = range[2];
+    clean = clean.replace(range[0], ` ${range[1]} `).replace(/\s+/g, " ").trim();
+  }
   const real = clean.match(/\breal\s*([0-9]+\s*(?:\.\s*[0-9]+)?)/i);
   const like = clean.match(/\/\s*like\s*([0-9]+(?:\s*\.\s*[0-9]+)?)\s*\//i);
   const also = clean.match(/\bwith\s*([0-9]+\s*(?:\.\s*[0-9]+)?)/i);
@@ -216,6 +429,7 @@ function takeSize(line: string) {
     const cnEq = clean.match(new RegExp(`(?:^|[^\\d])(\\d{2})\\s*=\\s*(?:BOX\\s*[0-9.]+|${usBit})?`, "i"));
     if (cnEq && Number(cnEq[1]) >= 30) {
       system = "CN";
+      bare = true;
       label = cnEq[1];
       if (cnEq[2] && (/^box/i.test(cnEq[2]) || Number(cnEq[2].replace(/\s+/g, "").replace("+", "")) < 20)) us = tidyUs(cnEq[2]);
     } else {
@@ -229,6 +443,7 @@ function takeSize(line: string) {
         label = `${fraction[1]} ${fraction[2]}/${fraction[3]}`;
       } else if (cnLoose && Number(cnLoose[1]) >= 30 && (equivalent || clean.match(new RegExp(`\\(\\s*${usBit}\\s*\\)`)))) {
         system = "CN";
+        bare = true;
         label = cnLoose[1];
         const paren = clean.match(new RegExp(`\\(\\s*${usBit}\\s*\\)`));
         const picked = equivalent?.[1] || paren?.[1] || "";
@@ -242,6 +457,7 @@ function takeSize(line: string) {
             label = tidyUs(raw);
           } else if (n >= 30 && n < 60) {
             system = "CN";
+            bare = true;
             label = String(Math.round(n));
           }
         }
@@ -260,10 +476,12 @@ function takeSize(line: string) {
   }
   if (also) notes.push(`With ${tidyUs(also[1])}`);
   if (alt) notes.push(`or ${tidyUs(alt[1])}`);
+  if (!alt && rangeAlt) notes.push(`or ${tidyUs(rangeAlt)}`);
   if (offered) notes.push(`Offered as ${tidyUs(offered[1])}`);
   if (/\bused\b/i.test(clean)) notes.push("Used");
   if (/\bmine\b/i.test(clean)) notes.push("Mine");
-  return { system, label, us, notes };
+  if (boxUs && !us) us = boxUs;
+  return { system, label, us, notes, bare };
 }
 
 function dateKind(prefix: string | undefined): "" | "added" | "sold" {
@@ -308,7 +526,7 @@ function datesOf(line: string, today: Date, soldBatch: boolean) {
   }
   const receivedOn = added && addedYear != null ? iso(addedYear, added.month, added.day) : null;
   const soldOn = sold && soldYear != null ? iso(soldYear, sold.month, sold.day) : null;
-  return { receivedOn, soldOn, saidSold };
+  return { receivedOn, soldOn, saidSold, addedYearWritten: !!added?.year, soldYearWritten: !!sold?.year };
 }
 
 function personName(raw: string) {
@@ -325,7 +543,7 @@ function clientOf(line: string) {
     || text.match(/\bfor\s+([\p{Lu}][\p{L}'’.-]+(?:\s+[\p{Lu}][\p{L}'’.-]+)?)/u);
   const fromLead = lead ? personName(lead[1]) : "";
   if (fromLead) return fromLead;
-  const present = text.match(/\b([\p{Lu}][\p{L}'’.-]+)'s\s+(?:birthday\s+)?present\b/u);
+  const present = text.match(/\b([\p{Lu}][\p{L}'’.-]+(?:\s+[\p{Lu}][\p{L}'’.-]+)?)'s\s+(?:birthday\s+)?present\b/u);
   if (present) return personName(present[1]);
   const dashed = text.match(/[-–—]\s*([\p{Lu}][\p{L}'’.-]+\s+[\p{Lu}][\p{L}'’.-]+)\s*[-–—]/u);
   if (dashed) return personName(dashed[1]);
@@ -336,34 +554,56 @@ function clientOf(line: string) {
 function noteBits(line: string) {
   const bits: string[] = [];
   const plain = stripMarks(line);
-  if (/\bgift\b|\bpresent\b|\bbirthday\b|\bgave it to me\b/i.test(plain)) bits.push("Gift");
+  if (/\bgifts?\b|\bregalos?\b|\bpresent\b|\bbirthday\b|\bgave it to me\b/i.test(plain)) bits.push("Gift");
   if (/\breturned\b/i.test(plain)) bits.push("Returned");
   if (/likely to return/i.test(plain)) bits.push("Likely return");
   if (/full refund/i.test(plain)) bits.push("Full refund");
-  const percent = plain.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:%|percent)\b/i);
-  if (percent) bits.push(`${percent[1]}%`);
   const comment = line.match(/\/\*\s*(.+?)\s*\*\//);
   if (comment) {
     const long = comment[1].match(/long to be\s*([0-9.]+)/i);
     bits.push(long ? `Runs long, should be ${long[1]}` : stripMarks(comment[1]));
   }
-  const percentOff = /[0-9.]+\s*%\s*off\b/i.test(plain);
-  const off = percentOff ? null : plain.match(/\$?\s*([0-9]+(?:\s*\.\s*[0-9]+)?)\s*off\b/i);
-  if (off) bits.push(`Credit $${off[1].replace(/\s+/g, "")}`);
-  return { bits, discount: off ? dollarsToCents(off[1].replace(/\s+/g, "")) : 0 };
+  // The "N off" money itself is NOT a note any more: since 1.0.16 it lives in buyRebateCents
+  // (takeRebate). The old parser wrote it twice — a "Credit $N" note and the field — which is
+  // how a rebate could be counted twice.
+  return { bits };
 }
 
+export type RowKind = "sale" | "stock" | "gift" | "returned" | "used" | "kept" | "failed-sale";
+export type CostState = "" | "gift" | "refunded" | "approx";
+
+export type DetailedRow = {
+  input: PieceInput;
+  raw: string;
+  section: string;
+  kind: RowKind;
+  soldDated: boolean;
+  issues: RowIssue[];
+  /** The person named on the line, whatever the line is. Only a sale stores it as the client. */
+  person: string;
+  personalNote: string;
+  marks: string;
+  costState: CostState;
+  /** The size system was read from a bare number with no EU/CN written — a batch rule may relabel it. */
+  sizeBare: boolean;
+  addedYearWritten: boolean;
+  soldYearWritten: boolean;
+};
+
+export type LooseLine = { raw: string; section: string; kind: "loose" | "personal"; text: string };
+
 /**
- * A title, then one line per piece. Sold lines become sold.
- * Pass soldBatch when the whole note is already sold: those land in the archive and still count.
+ * The detailed parse behind the tray (1.0.16): every line is classified on its own evidence —
+ * the document is never trusted as a whole. `parseFloorNotes` below stays as the plain wrapper.
  */
-export function parseFloorNotes(text: string, today = new Date(), soldBatch = false): PieceInput[] {
+export function parseDetailedNotes(text: string, today = new Date(), soldBatch = false): { rows: DetailedRow[]; loose: LooseLine[] } {
   let title = "";
   let category = "Boot";
   let fit = "men";
   let source = "";
   let nextUnsure = false;
-  const rows: PieceInput[] = [];
+  const rows: DetailedRow[] = [];
+  const loose: LooseLine[] = [];
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || /^[.\s…]+$/.test(line)) continue;
@@ -374,6 +614,10 @@ export function parseFloorNotes(text: string, today = new Date(), soldBatch = fa
     const section = /^[#^]/.test(line) || isSummary(line);
     const body = stripIndex(line);
     if (section || !isRow(body)) {
+      if (!section && PERSONAL_RE.test(body)) {
+        loose.push({ raw: line, section: title, kind: "personal", text: body });
+        continue;
+      }
       const name = headingName(section ? line : body);
       if (!name || /^[?.]+$/.test(name)) continue;
       if (isSummary(name)) {
@@ -395,12 +639,57 @@ export function parseFloorNotes(text: string, today = new Date(), soldBatch = fa
       continue;
     }
     const named = lineProduct(body);
-    const { receivedOn, soldOn, saidSold } = datesOf(body, today, soldBatch);
+    // A personal note riding on a row is cut off the row first: it belongs to the batch, never
+    // to the piece, and it never touches a number.
+    let work = body;
+    let personalNote = "";
+    const pm = work.match(PERSONAL_RE);
+    if (pm && pm.index != null) {
+      personalNote = work.slice(pm.index).replace(/^[\s.\-–—:]+/, "").trim();
+      work = work.slice(0, pm.index).trim();
+    }
+    const marks = marksOf(line);
+    const person = clientOf(work);
+    const dates = datesOf(work, today, soldBatch);
+    const { receivedOn, soldOn } = dates;
     DATE_RE.lastIndex = 0;
-    const dated = body.replace(DATE_RE, " ");
-    const cost = takeCost(dated);
-    const sale = takeSale(cost.line);
-    const sized = cost.line
+    const dated = work.replace(DATE_RE, " ");
+    let costGift = false;
+    let workD = dated;
+    if (/\(\s*\$?\s*gift\s*\)/i.test(workD)) {
+      costGift = true;
+      workD = workD.replace(/\(\s*\$?\s*gift\s*\)/i, " ");
+    }
+    const reb = takeRebate(workD);
+    let gross: number;
+    let costLine: string;
+    const costNotes: string[] = [...reb.notes];
+    if (reb.grossOverride != null) {
+      gross = reb.grossOverride;
+      costLine = reb.line;
+    } else {
+      const found = takeCost(reb.line);
+      gross = found.cents + reb.netBasisRebate;
+      costLine = found.line;
+      costNotes.push(...found.notes);
+    }
+    let rebate = reb.rebate;
+    if (reb.pendingPercent != null && gross > 0) rebate += Math.round((gross * reb.pendingPercent) / 100);
+    const issues: RowIssue[] = [...reb.issues];
+    if (rebate > gross && gross > 0) issues.push("uncertain-rebate");
+    let costState: CostState = costGift ? "gift" : "";
+    if (/\bfull\s*refund/i.test(work)) {
+      costState = "refunded";
+      gross = 0;
+    }
+    const approxCost = /likely\s*\$/i.test(work) || /don'?t remember/i.test(work) || /\bno recuerdo\b/i.test(work);
+    if (approxCost) {
+      costState = "approx";
+      issues.push("true-cost");
+    }
+    const sale = takeSale(costLine);
+    const saidSold = dates.saidSold || sale.arrowSold;
+    const sized = sale.line
       .replace(/\b(?:sold\s+)?for\s+\$\s*[0-9.\s]+/gi, " ")
       .replace(/\+\s*\$\s*[0-9.]+\s*delivery/gi, " ")
       .replace(/\bdelivery\s*\$\s*[0-9.]+/gi, " ")
@@ -409,35 +698,92 @@ export function parseFloorNotes(text: string, today = new Date(), soldBatch = fa
     const size = takeSize(sized);
     const extra = noteBits(line);
     const coming = /\bcoming\b/i.test(line) || /💙/.test(line);
-    const unsure = nextUnsure || /\?/.test(line) || /likely to return/i.test(line);
+    const unsure = nextUnsure || /\?/.test(line) || /likely to return/i.test(line) || approxCost;
     nextUnsure = false;
-    const counted = soldBatch || saidSold;
+
+    const returned = /\breturned\b/i.test(work);
+    const failed = FAILED_SALE_RE.test(work);
+    const keptLine = KEPT_RE.test(work);
+    const giftOut = /\bpresent\b/i.test(work) || (/\bgifts?\b/i.test(work) && !!person) || (/\bmine\b/i.test(work) && !!person && /\bto\s+\p{Lu}/u.test(work));
+    const usedLine = /\bused\b/i.test(work);
+    let kind: RowKind;
+    if (returned) kind = "returned";
+    else if (failed) kind = "failed-sale";
+    else if (keptLine) kind = "kept";
+    else if (!saidSold && !soldBatch && giftOut) kind = "gift";
+    else if (saidSold || soldBatch) kind = "sale";
+    else if (usedLine) kind = "used";
+    else kind = "stock";
+    if (kind === "sale" && coming) issues.push("coming-sold");
+    if (personalNote) issues.push("personal-note");
+
     const base = emptyInput();
-    const notes = [...size.notes, ...sale.notes, ...cost.notes, ...extra.bits].filter((bit, index, all) => bit && all.indexOf(bit) === index);
+    const noteList = [...size.notes, ...sale.notes, ...costNotes, ...extra.bits];
+    if (kind === "failed-sale") noteList.push("Failed sale");
+    if (kind === "gift" && person) noteList.push(`For ${person}`);
+    if (marks) noteList.push(`Marks: ${marks}`);
+    const notes = noteList.filter((bit, index, all) => bit && all.indexOf(bit) === index);
+    const status =
+      kind === "sale"
+        ? soldBatch
+          ? "archived"
+          : "sold"
+        : kind === "kept"
+          ? "kept"
+          : kind === "gift"
+            ? "archived"
+            : kind === "stock" && coming
+              ? "incoming"
+              : "available";
     rows.push({
-      ...base,
-      name: named?.name || title || category || "Piece",
-      category: named?.category || category,
-      brand: named?.brand || "",
-      status: soldBatch ? "archived" : saidSold ? "sold" : coming ? "incoming" : "available",
-      wasSold: counted,
-      sizeSystem: size.system || "US",
-      sizeLabel: size.label,
-      usSize: size.system === "US" ? "" : size.us,
-      fit: named?.fit || fit,
-      costCents: cost.cents,
-      askCents: sale.cents ?? 0,
-      saleCents: counted && sale.cents != null ? sale.cents : null,
-      discountCents: extra.discount,
-      source: source || sourceOf(line),
-      channel: /\bebay\b/i.test(line) ? "Ebay" : "",
-      place: placeOf(line),
-      clientName: clientOf(line),
-      receivedOn,
-      soldOn,
-      notes: notes.join(" · "),
-      problem: unsure ? "unsure" : "",
+      input: {
+        ...base,
+        name: named?.name || title || category || "Piece",
+        category: named?.category || category,
+        brand: named?.brand || "",
+        status,
+        wasSold: kind === "sale",
+        sizeSystem: size.system || "US",
+        sizeLabel: size.label,
+        usSize: size.system === "US" ? "" : size.us,
+        fit: named?.fit || fit,
+        costCents: gross,
+        askCents: kind === "sale" ? (sale.askFromPrice ?? 0) : kind === "stock" || kind === "used" || kind === "failed-sale" ? (sale.price ?? 0) : 0,
+        saleCents: kind === "sale" ? sale.price : null,
+        buyRebateCents: rebate,
+        deliveryCents: sale.delivery,
+        source: source || sourceOf(line),
+        channel: /\bebay\b/i.test(line) ? "Ebay" : "",
+        place: placeOf(line),
+        // Oscar's rule: a name becomes the client only on a real sale. A gift keeps its
+        // recipient in the notes; stock and failed sales keep the name out of the client field.
+        clientName: kind === "sale" ? person : "",
+        receivedOn,
+        soldOn: kind === "sale" ? soldOn : null,
+        notes: notes.join(" · "),
+        problem: unsure ? "unsure" : "",
+      },
+      raw: line,
+      section: title,
+      kind,
+      soldDated: kind === "sale" && !!soldOn,
+      issues,
+      person,
+      personalNote,
+      marks,
+      costState,
+      sizeBare: size.bare,
+      addedYearWritten: dates.addedYearWritten,
+      soldYearWritten: dates.soldYearWritten,
     });
   }
-  return rows;
+  return { rows, loose };
+}
+
+/**
+ * A title, then one line per piece. Sold lines become sold.
+ * Pass soldBatch when the whole note is already sold: those land in the archive and still count.
+ */
+export function parseFloorNotes(text: string, today = new Date(), soldBatch = false): PieceInput[] {
+  return parseDetailedNotes(text, today, soldBatch).rows.map((row) => row.input);
 }

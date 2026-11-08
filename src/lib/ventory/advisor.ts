@@ -1,4 +1,4 @@
-import { daysHeld, money, type Ad, type Piece } from "./model";
+import { daysHeld, effectiveCostCents, money, profitOf, type Ad, type Piece } from "./model";
 
 export type AdviceTone = "ready" | "watch" | "loss";
 
@@ -74,8 +74,9 @@ function adSpend(piece: Piece, ads: Ad[]) {
 }
 
 function netOf(piece: Piece, ads: Ad[]) {
-  if (piece.saleCents == null) return null;
-  return piece.saleCents * piece.qty - piece.costCents * piece.qty - adSpend(piece, ads);
+  const profit = profitOf(piece);
+  if (profit == null) return null;
+  return profit.profit - adSpend(piece, ads);
 }
 
 function list(names: string[]) {
@@ -117,7 +118,7 @@ function sourceNote(sold: Piece[]) {
 function ladder(piece: Piece, days: number) {
   const ask = piece.askCents > 0 ? piece.askCents : null;
   const cut = ask != null ? Math.round(ask * 0.9) : null;
-  const left = cut != null ? cut - piece.costCents : null;
+  const left = cut != null ? cut - effectiveCostCents(piece) : null;
   if (days <= 14) return `${piece.name} is inside the normal window (${days} days from arrival — there is no listing date on the card). Check that the card stays complete.`;
   if (days <= 30) return `${piece.name} has sat ${days} days. Review the photo, put the size and brand in the title, and set the asking price against its break-even. Break-even is the lowest price that leaves you whole: at least the $${(piece.costCents / 100).toFixed(2)} it cost, until fees and shipping are on the card.`;
   if (days <= 60 && cut != null && left != null) return `${piece.name} has sat ${days} days. A first cut of about 10% would ask ${money(cut)}. If it sells there, about ${money(left)} stays after cost — fees are still unknown, so that is not the final net.`;
@@ -161,7 +162,7 @@ export function buildAdvice(pieces: Piece[], ads: Ad[], today = new Date()): Adv
 
   const priced = sold.filter((piece) => piece.saleCents != null);
   const revenue = priced.reduce((sum, piece) => sum + (piece.saleCents ?? 0) * piece.qty, 0);
-  const soldCost = priced.reduce((sum, piece) => sum + piece.costCents * piece.qty, 0);
+  const soldCost = priced.reduce((sum, piece) => sum + effectiveCostCents(piece) * piece.qty, 0);
   const adOnSales = priced.reduce((sum, piece) => sum + adSpend(piece, ads), 0);
   const net = revenue - soldCost - adOnSales;
 

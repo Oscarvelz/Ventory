@@ -6,7 +6,8 @@
   "scripts": {
     "build": "sh build.sh",
     "dev": "vite -c vite.spa.config.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node tests/run.mjs"
   },
   "dependencies": {
     "react": "19.3.0",

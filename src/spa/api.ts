@@ -26,7 +26,9 @@ function toPiece(id: string, raw: Record<string, unknown>): Piece {
     costCents: Number(r.costCents) || 0,
     askCents: Number(r.askCents) || 0,
     saleCents: r.saleCents == null ? null : Number(r.saleCents),
-    discountCents: Number(r.discountCents) || 0,
+    // 1.0.16 migration: the old `discountCents` was the purchase rebate all along (see model.ts).
+    buyRebateCents: Number(r.buyRebateCents ?? (r as { discountCents?: number }).discountCents) || 0,
+    deliveryCents: Number(r.deliveryCents) || 0,
     source: String(r.source ?? ""),
     channel: String(r.channel ?? ""),
     clientName: String(r.clientName ?? ""),
@@ -58,7 +60,8 @@ function clean(raw: PieceInput): PieceInput {
     costCents: Math.max(0, Math.round(Number(raw.costCents) || 0)),
     askCents: Math.max(0, Math.round(Number(raw.askCents) || 0)),
     saleCents: raw.saleCents == null ? null : Math.max(0, Math.round(Number(raw.saleCents) || 0)),
-    discountCents: Math.max(0, Math.round(Number(raw.discountCents) || 0)),
+    buyRebateCents: Math.max(0, Math.round(Number(raw.buyRebateCents ?? (raw as { discountCents?: number }).discountCents) || 0)),
+    deliveryCents: Math.max(0, Math.round(Number(raw.deliveryCents) || 0)),
     source: String(raw.source ?? "").slice(0, 80),
     channel: String(raw.channel ?? "").slice(0, 80),
     clientName: String(raw.clientName ?? "").slice(0, 120),
@@ -152,7 +155,7 @@ export async function savePiece({ data }: { data: PieceInput }) {
   return readPieces().find((piece) => piece.id === id) ?? null;
 }
 
-export async function setStatus({ data }: { data: { id: string; status: Status; saleCents?: number | null; soldOn?: string | null; clientName?: string; channel?: string; discountCents?: number } }) {
+export async function setStatus({ data }: { data: { id: string; status: Status; saleCents?: number | null; soldOn?: string | null; clientName?: string; channel?: string; buyRebateCents?: number } }) {
   const cur = store.get("piece", data.id);
   if (cur) {
     const p = toPiece(data.id, cur.data);
@@ -165,7 +168,7 @@ export async function setStatus({ data }: { data: { id: string; status: Status; 
       wasSold: status === "sold" ? true : status === "archived" ? p.wasSold || p.status === "sold" : p.wasSold,
       clientName: data.clientName ?? "",
       channel: data.channel ?? "",
-      discountCents: Math.max(0, Number(data.discountCents) || 0),
+      buyRebateCents: Math.max(0, Number(data.buyRebateCents) || 0),
     };
     await store.write([{ kind: "piece", id: p.id, data: pieceData(p.id, next, p.sort) }]);
   }
@@ -209,6 +212,28 @@ export async function importPieces({ data: raw }: { data: PieceInput[] }) {
     const id = crypto.randomUUID();
     return { kind: "piece" as const, id, data: pieceData(id, p, sort++) };
   }));
+  return readPieces();
+}
+
+/**
+ * The tray's apply step (1.0.16): new pieces are added, and pieces the tray recognised as
+ * already on the floor are COMPLETED in place (same id, same sort) instead of duplicated.
+ */
+export async function applyTrayImport({ data }: { data: { add: PieceInput[]; update: PieceInput[] } }) {
+  const adds = (Array.isArray(data.add) ? data.add.slice(0, 400).map(clean) : []).filter((p) => p.name);
+  let sort = nextSort();
+  const items: { kind: "piece"; id: string; data: Record<string, unknown> }[] = adds.map((p) => {
+    const id = crypto.randomUUID();
+    return { kind: "piece" as const, id, data: pieceData(id, p, sort++) };
+  });
+  for (const raw of Array.isArray(data.update) ? data.update.slice(0, 400) : []) {
+    if (!raw.id || !store.get("piece", raw.id)) continue;
+    const cleaned = clean(raw);
+    if (!cleaned.name) continue;
+    const existingSort = Number(store.get("piece", raw.id)?.data.sort) || 0;
+    items.push({ kind: "piece" as const, id: raw.id, data: pieceData(raw.id, cleaned, existingSort) });
+  }
+  if (items.length) await store.write(items);
   return readPieces();
 }
 
@@ -297,7 +322,7 @@ const LEGACY_SAMPLES = [
 
 export function isLegacySample(piece: Piece): boolean {
   if (isSampleId(piece.id)) return false;
-  if (piece.brand !== "" || piece.qty !== 1 || piece.saleCents != null || piece.discountCents !== 0 || piece.channel !== "" || piece.clientName !== "" || piece.wasSold || piece.problem !== "" || piece.notes !== "" || piece.photo !== "" || piece.soldOn != null) return false;
+  if (piece.brand !== "" || piece.qty !== 1 || piece.saleCents != null || piece.buyRebateCents !== 0 || piece.deliveryCents !== 0 || piece.channel !== "" || piece.clientName !== "" || piece.wasSold || piece.problem !== "" || piece.notes !== "" || piece.photo !== "" || piece.soldOn != null) return false;
   return LEGACY_SAMPLES.some((s) =>
     piece.name === s.name && piece.category === s.category && piece.subcategory === s.subcategory &&
     piece.status === s.status && piece.sizeSystem === s.sizeSystem && piece.sizeLabel === s.sizeLabel &&
@@ -340,7 +365,8 @@ function samplePiece(id: string, fields: Partial<PieceInput> & { name: string })
     costCents: 0,
     askCents: 0,
     saleCents: null,
-    discountCents: 0,
+    buyRebateCents: 0,
+    deliveryCents: 0,
     source: "",
     channel: "",
     clientName: "",
@@ -386,10 +412,10 @@ export function buildSamples(): { pieces: PieceInput[]; ads: { id: string; produ
        date and one with no price, so every Statistics fold has its story. */
     samplePiece("17", { name: "Chelsea boot", subcategory: "Chelsea", brand: "Marc Fisher", status: "sold", wasSold: true, costCents: 3300, askCents: 8900, saleCents: 8400, ...sized("CN", "38", "women"), source: "AliExpress", channel: "Facebook Marketplace", clientName: "Marisol G.", receivedOn: isoInDays(-30), soldOn: isoInDays(-1), photo: samplePhoto("CB", "#4a5d7a") }),
     samplePiece("18", { name: "Chelsea boot", subcategory: "Chelsea", brand: "Marc Fisher", status: "sold", wasSold: true, costCents: 3100, askCents: 8200, saleCents: 7900, ...sized("CN", "37", "women"), source: "AliExpress", channel: "eBay", clientName: "Dana R.", receivedOn: isoInDays(-70), soldOn: isoInDays(-40), photo: samplePhoto("CB", "#4a5d7a") }),
-    samplePiece("19", { name: "Combat boot", subcategory: "Combat", brand: "Timberland", fit: "men", status: "sold", wasSold: true, costCents: 5000, askCents: 12800, saleCents: 11900, discountCents: 500, ...sized("CN", "42", "men"), source: "Temu", channel: "Facebook Marketplace", clientName: "Jose M.", receivedOn: isoInDays(-55), soldOn: isoInDays(-9), photo: samplePhoto("CB", "#5d6b4a") }),
+    samplePiece("19", { name: "Combat boot", subcategory: "Combat", brand: "Timberland", fit: "men", status: "sold", wasSold: true, costCents: 5000, askCents: 12800, saleCents: 11900, buyRebateCents: 500, ...sized("CN", "42", "men"), source: "Temu", channel: "Facebook Marketplace", clientName: "Jose M.", receivedOn: isoInDays(-55), soldOn: isoInDays(-9), photo: samplePhoto("CB", "#5d6b4a") }),
     samplePiece("20", { name: "Seiko 5", category: "Watch", brand: "Seiko", fit: "unisex", status: "sold", wasSold: true, costCents: 7800, askCents: 15900, saleCents: 15400, source: "eBay", channel: "eBay", clientName: "Priya S.", receivedOn: isoInDays(-120), soldOn: isoInDays(-80), photo: samplePhoto("S5", "#3b4a5d") }),
     samplePiece("21", { name: "Square-toe boot", subcategory: "Square-toe", brand: "Justin", status: "sold", wasSold: true, qty: 2, costCents: 4400, askCents: 9900, saleCents: 9600, ...sized("CN", "40", "women"), source: "eBay", channel: "In person", clientName: "Carla T.", receivedOn: isoInDays(-95), soldOn: isoInDays(-45), photo: samplePhoto("SB", "#8a6a3b") }),
-    samplePiece("22", { name: "Ankle boot", subcategory: "Ankle", brand: "Sam Edelman", status: "sold", wasSold: true, costCents: 3600, askCents: 9200, saleCents: 8800, discountCents: 300, ...sized("CN", "37", "women"), source: "Shein", channel: "Instagram", clientName: "Bea L.", receivedOn: isoInDays(-25), soldOn: isoInDays(-3), photo: samplePhoto("AB", "#7a3b4a") }),
+    samplePiece("22", { name: "Ankle boot", subcategory: "Ankle", brand: "Sam Edelman", status: "sold", wasSold: true, costCents: 3600, askCents: 9200, saleCents: 8800, buyRebateCents: 300, ...sized("CN", "37", "women"), source: "Shein", channel: "Instagram", clientName: "Bea L.", receivedOn: isoInDays(-25), soldOn: isoInDays(-3), photo: samplePhoto("AB", "#7a3b4a") }),
     samplePiece("23", { name: "Casio Vintage", category: "Watch", brand: "Casio", fit: "unisex", status: "sold", wasSold: true, costCents: 1900, askCents: 4500, saleCents: 4200, source: "AliExpress", channel: "Facebook Marketplace", receivedOn: isoInDays(-60), soldOn: null, photo: samplePhoto("CV", "#6b6b3b") }),
     samplePiece("24", { name: "Rain boot", subcategory: "Rain", brand: "Hunter", status: "sold", wasSold: true, costCents: 2800, askCents: 7400, saleCents: null, ...sized("CN", "36", "women"), source: "Shein", channel: "In person", receivedOn: isoInDays(-50), soldOn: isoInDays(-20), photo: samplePhoto("RB", "#3b6b5a") }),
     samplePiece("25", { name: "Hiking boot", subcategory: "Hiking", brand: "Merrell", fit: "men", status: "sold", wasSold: true, costCents: 4700, askCents: 11200, saleCents: 10900, ...sized("CN", "44", "men"), source: "Amazon", channel: "eBay", clientName: "Tom W.", receivedOn: isoInDays(-210), soldOn: isoInDays(-160), photo: samplePhoto("HB", "#6b4a3b") }),
