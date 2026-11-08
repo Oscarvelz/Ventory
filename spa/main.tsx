@@ -2,7 +2,7 @@ import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "@/styles.css";
 import { House } from "@/components/ventory/house";
-import { CLOUD_READY, emitUser, keepSignedIn, lastUser, rememberUser, setSessionGone, supabase } from "@/spa/cloud";
+import { CLOUD_READY, emitUser, hasStoredSession, keepSignedIn, lastUser, recoverSession, rememberUser, requestPersistentStorage, setSessionGone, supabase } from "@/spa/cloud";
 import { useVentoryUser } from "@/spa/gates";
 import { Landing } from "@/spa/login";
 import { openFloor, startAutoSync, syncNow } from "@/spa/store";
@@ -73,13 +73,13 @@ function Gate() {
       }
     });
     void (async () => {
-      try {
-        const { data, error } = await supabase.auth.getSession();
-        if (data.session) emitUser(rememberUser(data.session));
-        else if (!error && lastUser() && navigator.onLine) setExpired(true);
-      } catch {
-        /* offline: keep the remembered user */
-      }
+      // Patient recovery (cloud.ts recoverSession): the launch no longer concludes "signed out" from
+      // one cold read that caught a refresh mid-hiccup. "Session ended" is concluded only when recovery
+      // found no session AND storage provably holds none — a token still on the device means "not yet",
+      // and the floor opens on the remembered user while sync catches up.
+      const session = await recoverSession();
+      if (session) emitUser(rememberUser(session));
+      else if (lastUser() && navigator.onLine && !hasStoredSession()) setExpired(true);
       setBooted(true);
     })();
     return () => sub.subscription.unsubscribe();
@@ -96,6 +96,7 @@ function Gate() {
 }
 
 startNative(); // Ventory for Android only; a no-op in the browser and the PWA
+requestPersistentStorage(); // the sign-in and the floor ask not to be treated as evictable storage
 startAutoSync();
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

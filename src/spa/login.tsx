@@ -20,10 +20,23 @@ export function Landing({ note, recovery }: { note?: string; recovery?: boolean 
   );
 }
 
-function friendly(message: string, mode: string) {
-  if (/invalid login credentials/i.test(message)) return "Those details did not match.";
+/**
+ * Every refusal is reported as what it actually is. Only a genuine invalid-credentials answer from
+ * the server may say the details did not match — a connection failure, a rate limit, an unconfirmed
+ * account or a server hiccup each say their own thing, never the password's fault. (Mapped on the
+ * error's code first, its message second: the server's wording has changed before, its codes are
+ * the contract.)
+ */
+function friendly(err: unknown, mode: string) {
+  const e = (err ?? {}) as { message?: string; code?: string; status?: number };
+  const message = typeof e.message === "string" ? e.message : "";
+  const code = typeof e.code === "string" ? e.code : "";
+  if (code === "invalid_credentials" || /invalid login credentials/i.test(message)) return "Those details did not match.";
+  if (code === "email_not_confirmed" || /email not confirmed/i.test(message)) return "That account is not confirmed yet. Open the confirmation email, tap its link, then sign in.";
+  if (code === "over_request_rate_limit" || /rate.?limit|too many/i.test(code) || /rate.?limit|too many (requests|attempts)/i.test(message)) return "Too many tries in a row. Wait a minute, then try again.";
+  if (/fetch|network|load failed/i.test(message)) return navigator.onLine ? "Could not reach Ventory. Try again in a moment." : "You're offline. Connect to sign in the first time.";
+  if ((typeof e.status === "number" && e.status >= 500) || /internal server|unexpected|service unavailable/i.test(message)) return "Ventory's sign-in service had a hiccup. Try again in a moment.";
   if (/already registered/i.test(message)) return "That email already has an account. Sign in instead.";
-  if (/fetch|network/i.test(message)) return navigator.onLine ? "Could not reach Ventory. Try again in a moment." : "You're offline. Connect to sign in the first time.";
   return message || (mode === "up" ? "Could not create the account." : "Could not sign in.");
 }
 
@@ -81,7 +94,7 @@ function AccountForm({ note, recovery }: { note?: string; recovery?: boolean }) 
       if (err) throw err;
       emitUser(rememberUser(data.session));
     } catch (err) {
-      setError(friendly(err instanceof Error ? err.message : "", mode));
+      setError(friendly(err, mode));
     } finally {
       setBusy(false);
     }
@@ -103,7 +116,7 @@ function AccountForm({ note, recovery }: { note?: string; recovery?: boolean }) 
         {mode !== "reset" ? (
           <label className="block text-sm">
             <span className="text-muted">Email</span>
-            <input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" className="mt-1 h-12 w-full rounded-md border border-line bg-panel px-3" />
+            <input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} inputMode="email" className="mt-1 h-12 w-full rounded-md border border-line bg-panel px-3" />
           </label>
         ) : null}
         {needsPassword ? (
@@ -117,6 +130,8 @@ function AccountForm({ note, recovery }: { note?: string; recovery?: boolean }) 
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 autoComplete={mode === "in" ? "current-password" : "new-password"}
+                autoCapitalize="none"
+                spellCheck={false}
                 className="h-12 w-full rounded-md border border-line bg-panel px-3 pr-12"
               />
               <button

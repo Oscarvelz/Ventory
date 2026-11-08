@@ -5,16 +5,15 @@ export { CLOUD_READY };
 const LAST = "ventory.lastUser";
 
 /** "Keep me signed in" ("Mantener sesión abierta"): on (default) = the session lives on this device until you sign out;
- *  off = it lives only while the app is open (sessionStorage), so you sign in each time. */
+ *  off = it lives only while the app is open (sessionStorage), so you sign in each time. The switch routes the
+ *  session TOKEN only — the identity memory (ventory.lastUser) always lives in localStorage, so no past or
+ *  future position of this switch can strand it in storage that dies with the app. */
 const KEEP = "ventory.keep";
 export function keepSignedIn(): boolean {
   try { return localStorage.getItem(KEEP) !== "0"; } catch { return true; }
 }
 export function setKeepSignedIn(on: boolean) {
-  try {
-    localStorage.setItem(KEEP, on ? "1" : "0");
-    if (!on) localStorage.removeItem(LAST);
-  } catch { /* ignore */ }
+  try { localStorage.setItem(KEEP, on ? "1" : "0"); } catch { /* ignore */ }
 }
 function box(): Storage {
   return keepSignedIn() ? localStorage : sessionStorage;
@@ -43,20 +42,25 @@ export function rememberUser(s: Session | null): VentoryUser | null {
     email: s.user.email ?? "",
     name: (s.user.user_metadata?.name as string | undefined) || (s.user.user_metadata?.full_name as string | undefined) || s.user.email || "",
   };
-  try { box().setItem(LAST, JSON.stringify(u)); } catch { /* ignore */ }
+  // Always localStorage (see the KEEP note): an identity hint is not a credential, and it must survive
+  // exactly as long as the floor on this device does.
+  try { localStorage.setItem(LAST, JSON.stringify(u)); } catch { /* ignore */ }
   return u;
 }
 
 /** The last signed-in user on this device. Lets Ventory open the floor on this device with no network. */
 export function lastUser(): VentoryUser | null {
-  try {
-    const raw = box().getItem(LAST);
-    if (!raw) return null;
-    const u = JSON.parse(raw) as VentoryUser;
-    return u && typeof u.id === "string" ? u : null;
-  } catch {
-    return null;
+  // localStorage first; sessionStorage is checked too, to rescue a copy written there by an older build
+  // (when the identity memory followed the "Keep me signed in" switch) so no one is stranded by the move.
+  for (const store of [localStorage, sessionStorage]) {
+    try {
+      const raw = store.getItem(LAST);
+      if (!raw) continue;
+      const u = JSON.parse(raw) as VentoryUser;
+      if (u && typeof u.id === "string") return u;
+    } catch { /* try the other box */ }
   }
+  return null;
 }
 
 export function forgetUser() {
@@ -77,6 +81,54 @@ export async function signOutEverywhereLocal() {
   try { localStorage.removeItem("ventory-auth"); sessionStorage.removeItem("ventory-auth"); } catch { /* ignore */ }
   forgetUser();
   emitUser(null);
+}
+
+/** True while a cloud session token sits in storage. The "Keep me signed in" switch routes the token
+ *  between localStorage and sessionStorage, so both boxes are checked. */
+export function hasStoredSession(): boolean {
+  try { return !!(localStorage.getItem("ventory-auth") || sessionStorage.getItem("ventory-auth")); } catch { return false; }
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * The session for this launch, recovered patiently. A single cold getSession() used to decide
+ * "signed in or not" for the whole launch: a refresh that hiccuped at that exact moment — the radio
+ * still waking, a slow first connection — returned "no session" even when the stored sign-in was
+ * sound, and the launch ended on the sign-in form. Recovery now retries while there is anything
+ * left to recover: it stops as soon as a session appears, when the device is offline (nothing can
+ * refresh until the radio returns), or when storage provably holds no session at all. A definitive
+ * refresh rejection removes the stored session (the auth client's own doing), so the loop then
+ * concludes at once instead of spinning.
+ */
+export async function recoverSession(): Promise<Session | null> {
+  const waits = [0, 900, 2200, 4500];
+  for (let i = 0; i < waits.length; i++) {
+    if (waits[i]) await sleep(waits[i]);
+    try {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) return data.session;
+    } catch { /* a failed read is a reason to wait, never a reason to conclude */ }
+    if (!hasStoredSession()) return null;
+    if (!navigator.onLine) return null;
+  }
+  return null;
+}
+
+/**
+ * Ask the browser to keep this origin's storage — the sign-in and the floor — instead of treating
+ * it as evictable "best effort" storage that can be purged when the device runs low on space.
+ * Granted silently when granted at all; a no-op where the API is missing.
+ */
+export function requestPersistentStorage() {
+  try {
+    const store = navigator.storage;
+    if (!store || typeof store.persist !== "function" || typeof store.persisted !== "function") return;
+    void store
+      .persisted()
+      .then((already) => (already ? undefined : store.persist()))
+      .catch(() => undefined);
+  } catch { /* ignore */ }
 }
 
 /** Kept signed in but the cloud session ended (password changed, token revoked…): Ventory stays open with
