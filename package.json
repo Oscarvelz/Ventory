@@ -2,7 +2,7 @@
   "name": "ventory",
   "private": true,
   "type": "module",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "scripts": {
     "build": "sh build.sh",
     "dev": "vite -c vite.spa.config.ts",

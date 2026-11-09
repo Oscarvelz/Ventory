@@ -146,6 +146,7 @@ export function AdvisorView({
   const [allMove, setAllMove] = useState(false);
   const [allPrice, setAllPrice] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   const restock = useMemo(() => restockList(pieces), [pieces]);
   const move = useMemo(() => moveList(pieces), [pieces]);
   const priceRows = useMemo(() => priceList(pieces), [pieces]);
@@ -683,9 +684,22 @@ export function AdvisorView({
           <Info className="mt-0.5 size-3.5 shrink-0" strokeWidth={1.75} aria-hidden />
           <span>Anything missing from a card is named here, never invented.</span>
         </p>
-        <button type="button" className="press inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-line bg-accent-soft px-4 text-sm font-medium whitespace-nowrap text-ink" onClick={() => { void navigator.clipboard?.writeText(advice.plan); setCopied(true); window.setTimeout(() => setCopied(false), 1800); }}>
+        <button type="button" className="press inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-line bg-accent-soft px-4 text-sm font-medium whitespace-nowrap text-ink" onClick={async () => {
+          // Verify before claiming (button audit V-1): "Copied" only once the clipboard
+          // has actually taken the plan; a denial or a missing clipboard says so instead.
+          setCopyFailed(false);
+          try {
+            if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+            await navigator.clipboard.writeText(advice.plan);
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1800);
+          } catch {
+            setCopyFailed(true);
+            window.setTimeout(() => setCopyFailed(false), 2600);
+          }
+        }}>
           {copied ? <Check className="size-4" strokeWidth={2} style={{ color: litTone(GREEN) }} aria-hidden /> : <Copy className="size-4" strokeWidth={1.75} aria-hidden />}
-          {copied ? "Copied" : "Copy plan"}
+          <span className={copyFailed ? "text-danger" : undefined}>{copied ? "Copied" : copyFailed ? "Could not copy" : "Copy plan"}</span>
         </button>
       </div>
     </div>
