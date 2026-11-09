@@ -7,7 +7,7 @@ import { emitUser, keepSignedIn, rememberUser, setKeepSignedIn, supabase } from 
 
 export function Landing({ note, recovery }: { note?: string; recovery?: boolean }) {
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-10">
+    <main className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-10 lg:max-w-none lg:px-10">
       <p className="text-xs font-medium tracking-wide text-muted uppercase">Floor book</p>
       <h1 className="mt-8">
         <Wordmark className="text-5xl" />
@@ -102,7 +102,7 @@ function AccountForm({ note, recovery }: { note?: string; recovery?: boolean }) 
 
   const needsPassword = mode !== "forgot";
   return (
-    <div className="mt-8 w-full max-w-sm">
+    <div className="mx-auto mt-8 w-full max-w-sm">
       {mode === "forgot" || mode === "reset" ? (
         <p className="mb-3 text-sm text-muted">{mode === "forgot" ? "Enter your email and we'll send a link to make a new password." : "Choose a new password."}</p>
       ) : null}
@@ -196,13 +196,13 @@ function AccountForm({ note, recovery }: { note?: string; recovery?: boolean }) 
  */
 export function Locked({ failed, onOpen, onSignOut }: { failed: boolean; onOpen: () => void; onSignOut: () => void }) {
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-10">
+    <main className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-10 lg:max-w-none lg:px-10">
       <p className="text-xs font-medium tracking-wide text-muted uppercase">Floor book</p>
       <h1 className="mt-8">
         <Wordmark className="text-5xl" />
       </h1>
       <p className="mt-4 max-w-xl text-lg text-muted">Ventory is locked.</p>
-      <div className="mt-8 w-full max-w-sm">
+      <div className="mx-auto mt-8 w-full max-w-sm">
         <button
           type="button"
           onClick={onOpen}

@@ -285,6 +285,12 @@ export function House() {
   const layout: Layout = face === "large" ? "card" : face === "medium" ? "medium" : face === "list" ? "list" : cols === 2 ? "g2" : cols === 3 ? "g3" : "g4";
   const listClass = layout === "card" ? "mt-4 space-y-3" : layout === "g2" ? "mt-4 grid grid-cols-2 gap-2" : layout === "g3" ? "mt-4 grid grid-cols-3 gap-2" : layout === "g4" ? "mt-4 grid grid-cols-4 gap-1.5" : "mt-4 space-y-2";
   const nestClass = listClass.replace("mt-4 ", "");
+  // Tablet landscape (1.1.4): in a grid layout the group's cards run in ONE continuous grid across
+  // its subcategories — the sub wrappers and their lists flatten (lg:contents) so the subcategory
+  // header becomes a tile in the same flow and no card is left alone on a half-empty row. Below lg
+  // (and in the card/list layouts) the rendering is exactly what it has always been.
+  const wideCols = layout === "g2" ? "lg:grid-cols-2" : layout === "g3" ? "lg:grid-cols-3" : layout === "g4" ? "lg:grid-cols-4" : "";
+  const wideGrid = wideCols !== "";
   const [filterOpen, setFilterOpen] = useState(false);
   const [kind, setKind] = useState("all");
   const [product, setProduct] = useState("all");
@@ -689,7 +695,7 @@ export function House() {
 
   return (
     <main
-      className="mx-auto min-h-dvh w-full max-w-3xl px-4 pb-28"
+      className="mx-auto min-h-dvh w-full max-w-3xl px-4 pb-28 lg:max-w-none lg:px-8"
       onTouchStart={(event) => {
         touchX.current = event.changedTouches[0]?.clientX ?? 0;
       }}
@@ -704,7 +710,7 @@ export function House() {
         rippleNav(next);
       }}
     >
-      <header ref={topRef} className="shelf-top sticky top-0 z-30 -mx-4 flex items-center justify-between gap-3 bg-canvas px-4 pt-[max(0.25rem,env(safe-area-inset-top))] pb-3">
+      <header ref={topRef} className="shelf-top sticky top-0 z-30 -mx-4 flex items-center justify-between gap-3 bg-canvas px-4 pt-[max(0.25rem,env(safe-area-inset-top))] pb-3 lg:-mx-8 lg:px-8">
         <Wordmark className="text-[2.156rem]" />
         <div className="flex items-center gap-1.5">
           <button type="button" aria-label="Add" className="press grid size-9 place-items-center rounded-full bg-accent text-accent-ink" onClick={() => { setFilterOpen(false); setEditorFocus(null); setEditor(emptyInput()); }}>
@@ -800,13 +806,13 @@ export function House() {
                     <ChevronDown className={`size-4 text-muted transition-transform ${open ? "rotate-180" : ""}`} strokeWidth={1.75} />
                   </button>
                   {open ? (
-                    <div className="mt-3 space-y-4">
+                    <div className={wideGrid ? `mt-3 space-y-4 lg:grid ${wideCols} ${layout === "g4" ? "lg:gap-1.5" : "lg:gap-2"} lg:space-y-0` : "mt-3 space-y-4"}>
                       {group.subs.map((sub) => {
                         const photo = marks.find((mark) => mark.category.toLowerCase() === group.category.toLowerCase() && mark.subcategory.toLowerCase() === sub.name.toLowerCase())?.photo ?? "";
                         return (
-                        <div key={sub.name || "plain"}>
+                        <div key={sub.name || "plain"} className={wideGrid ? "lg:contents" : undefined}>
                           {sub.name ? (
-                            <div className="flex items-center gap-3 rounded-2xl border border-line bg-panel p-2 pr-4">
+                            <div className={`flex items-center gap-3 rounded-2xl border border-line bg-panel p-2 pr-4${wideGrid ? " lg:self-start" : ""}`}>
                               <label className="press relative grid size-16 shrink-0 cursor-pointer place-items-center overflow-hidden rounded-xl bg-canvas text-muted">
                                 {photo ? <img src={photo} alt="" className="size-full object-cover" /> : <ImagePlus className="size-5" strokeWidth={1.75} />}
                                 <input
@@ -830,7 +836,7 @@ export function House() {
                               </span>
                             </div>
                           ) : null}
-                          <ul className={`${nestClass} ${sub.name ? "mt-2" : ""}`}>
+                          <ul className={`${nestClass} ${sub.name ? "mt-2" : ""}${wideGrid ? " lg:contents" : ""}`}>
                             {sub.items.map((piece) => (
                               <PieceCard
                                 key={piece.id}
@@ -886,6 +892,10 @@ export function House() {
           </div>
           {adsOn ? <AdsWidget ads={ads} pieces={pieces} onChange={setAds} /> : null}
           <ViewBar face={face} cols={cols} onFace={setFace} onCols={setCols} kinds={past === "sold" ? products : kinds} kind={past === "sold" ? product : kind} open={filterOpen} onToggle={() => setFilterOpen((open) => !open)} onKind={(id) => { if (past === "sold") setProduct(id); else setKind(id); setFilterOpen(false); }} />
+          {/* Tablet landscape (1.1.4): the By product board stands beside the list instead of above it.
+              The grid only exists when the board does, so an archive list (or an empty shelf) keeps the
+              full width. Below lg the stacking is exactly as before. */}
+          <div className={past === "sold" && soldLines.some((row) => product === "all" || row.name.toLowerCase() === product) ? "lg:grid lg:grid-cols-2 lg:items-start lg:gap-4" : undefined}>
           {past === "sold" && soldLines.some((row) => product === "all" || row.name.toLowerCase() === product) ? <SalesBoard title="By product" rows={soldLines.filter((row) => product === "all" || row.name.toLowerCase() === product)} /> : null}
           {history.length === 0 ? (
             <div className="mt-6 rounded-3xl border border-line bg-panel px-6 py-8">
@@ -909,10 +919,13 @@ export function House() {
               ))}
             </ul>
           )}
+          </div>
         </section>
 
         <section className={panel("ledger")}>
-          <div className="grid grid-cols-2 gap-2">
+          {/* Tablet landscape (1.1.4): the desk switch steps aside and both desks stand side by side,
+              chart and advice in two columns. Below lg the switch and the single desk are untouched. */}
+          <div className="grid grid-cols-2 gap-2 lg:hidden">
             {([
               ["stats", "Statistics"],
               ["advisor", "Advisor"],
@@ -929,10 +942,12 @@ export function House() {
             ))}
           </div>
           {exporting ? <ExportCenter pieces={pieces} ads={adsOn ? ads : []} advice={brief} onClose={() => setExporting(false)} onDone={setNotice} /> : null}
-          {desk === "stats" ? (
-            <StatsDesk pieces={pieces} ads={ads} adsOn={adsOn} lines={brief.lines} openStats={openStats} pinnedStats={pinnedStats} foldStat={foldStat} pinStat={pinStat} />
-          ) : (
-            <AdvisorView
+          <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-5">
+            <div className={desk === "stats" ? "min-w-0" : "hidden min-w-0 lg:block"}>
+              <StatsDesk pieces={pieces} ads={ads} adsOn={adsOn} lines={brief.lines} openStats={openStats} pinnedStats={pinnedStats} foldStat={foldStat} pinStat={pinStat} />
+            </div>
+            <div className={desk === "advisor" ? "min-w-0" : "hidden min-w-0 lg:block"}>
+              <AdvisorView
               advice={brief}
               pieces={pieces}
               onOpen={(piece, focus) => { setEditorFocus(focus ?? null); setEditor({ ...piece }); }}
@@ -965,13 +980,14 @@ export function House() {
                   if (saved) setPieces((current) => current.map((item) => (item.id === saved.id ? saved : item)));
                 });
               }}
-            />
-          )}
+              />
+            </div>
+          </div>
         </section>
       </div>
 
       {undo && !undoOpen && (undo.what === "Sold" || undo.what === "Delete") ? (
-        <div className="fixed inset-x-0 bottom-[4.75rem] z-20 mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-4">
+        <div className="fixed inset-x-0 bottom-[4.75rem] z-20 mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-4 lg:max-w-none lg:px-8">
           <p className="min-w-0 rounded-full border border-line bg-panel px-4 py-2 text-sm text-ink">{undo.name} · {undo.what}</p>
           <button type="button" className="press h-10 shrink-0 rounded-full border border-line bg-canvas px-4 text-sm text-ink" onClick={() => setUndoOpen(true)}>Reverse</button>
         </div>

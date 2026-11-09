@@ -2,6 +2,13 @@
 @source "./";
 @source "../spa";
 
+/* Tablet landscape step (1.1.4, the tablet-space round): from 1280px up the whole app takes one
+   type step — the root size rises 16px → 17.5px, so every rem-based card, figure and gap grows
+   with it and the floor stops looking phone-sized on a tablet. Portrait and phones never see it. */
+@media (min-width: 1280px) {
+  html { font-size: 17.5px; }
+}
+
 @theme {
   --font-display: "Fraunces", Palatino, "Palatino Linotype", serif;
   --font-sans: "Outfit", "Avenir Next", "Segoe UI", sans-serif;
