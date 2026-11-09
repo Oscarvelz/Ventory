@@ -90,7 +90,7 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
         <p className="mt-3 text-sm text-muted">
           {csvDone
             ? `${csvDone} rows imported from the spreadsheet paste.`
-            : `${applied!.add.length} new pieces imported${applied!.update.length ? `, and ${applied!.update.length} already on the floor were completed instead of duplicated` : ""}.`}
+            : `${applied!.add.length} new ${applied!.add.length === 1 ? "piece" : "pieces"} imported${applied!.update.length ? `, and ${applied!.update.length} already on the floor were completed instead of duplicated` : ""}.`}
         </p>
         {notes.length ? (
           <div className="mt-4 rounded-2xl border border-line bg-panel p-4">
@@ -303,7 +303,7 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
                 setApplied(preview);
               }}
             >
-              Import {preview.add.length} pieces{preview.update.length ? ` · complete ${preview.update.length} on the floor` : ""}
+              Import {preview.add.length} {preview.add.length === 1 ? "piece" : "pieces"}{preview.update.length ? ` · complete ${preview.update.length} on the floor` : ""}
             </button>
           ) : null}
         </>

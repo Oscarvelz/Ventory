@@ -81,7 +81,8 @@ export function FingerprintControl() {
     void lockSupported().then(setCanLock);
     if (user) setLocked(Boolean(lockCredential(user.id)));
   }, [user]);
-  if (!user) return null;
+  // Never an empty fold: without an account, say what the fold is waiting for (button audit V-7).
+  if (!user) return <p className="text-sm leading-relaxed text-muted">Sign in to use fingerprint unlock on this device.</p>;
   return (
     <div className="grid gap-1">
       <span className="text-sm font-medium">Fingerprint unlock</span>

@@ -309,6 +309,12 @@ export function House() {
   const [sampleAsk, setSampleAsk] = useState(false);
   const [wiping, setWiping] = useState(false);
   const [notice, setNotice] = useState("");
+  // A notice reports a moment, not a state: it clears itself (button audit V-9).
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(""), 9000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
   const touchX = useRef(0);
   const topRef = useRef<HTMLElement>(null);
   const dockRef = useRef<HTMLElement>(null);
@@ -316,7 +322,7 @@ export function House() {
 
   useEffect(() => {
     if (!undo || undoOpen) return;
-    if (undo.what !== "Sold" && undo.what !== "Delete") {
+    if (undo.what !== "Sold" && undo.what !== "Delete" && undo.what !== "Remove") {
       setUndo(null);
       return;
     }
@@ -972,7 +978,12 @@ export function House() {
               onRemove={(piece, reason) => {
                 const note = piece.notes.includes(reason) ? piece.notes : `${piece.notes ? `${piece.notes} · ` : ""}Removed: ${reason}`;
                 void savePiece({ data: { ...piece, status: "archived", wasSold: false, saleCents: null, soldOn: null, notes: note } }).then((saved) => {
-                  if (saved) setPieces((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+                  if (saved) {
+                    setPieces((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+                    // A Remove gets the house's Reverse strip, like Sold and Delete (button audit V-5).
+                    setUndo({ previous: piece, name: piece.name, what: "Remove" });
+                    setUndoOpen(false);
+                  }
                 });
               }}
               onFlag={(piece) => {
@@ -986,7 +997,7 @@ export function House() {
         </section>
       </div>
 
-      {undo && !undoOpen && (undo.what === "Sold" || undo.what === "Delete") ? (
+      {undo && !undoOpen && (undo.what === "Sold" || undo.what === "Delete" || undo.what === "Remove") ? (
         <div className="fixed inset-x-0 bottom-[4.75rem] z-20 mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-4 lg:max-w-none lg:px-8">
           <p className="min-w-0 rounded-full border border-line bg-panel px-4 py-2 text-sm text-ink">{undo.name} · {undo.what}</p>
           <button type="button" className="press h-10 shrink-0 rounded-full border border-line bg-canvas px-4 text-sm text-ink" onClick={() => setUndoOpen(true)}>Reverse</button>
@@ -1033,7 +1044,7 @@ export function House() {
               : (payload) => {
                   void applyTrayImport({ data: { add: payload.add, update: payload.update } }).then((next) => {
                     setPieces(next);
-                    setNotice(`Imported ${payload.add.length} pieces${payload.update.length ? ` · completed ${payload.update.length} already on the floor` : ""}`);
+                    setNotice(`Imported ${payload.add.length} ${payload.add.length === 1 ? "piece" : "pieces"}${payload.update.length ? ` · completed ${payload.update.length} already on the floor` : ""}`);
                     setView("floor");
                   });
                 }
@@ -1083,8 +1094,8 @@ export function House() {
 
       {undoOpen && undo ? (
         <Overlay onClose={() => setUndoOpen(false)}>
-          <p className="font-display text-2xl">{undo.what === "Delete" ? `Add ${undo.name} back?` : `Put ${undo.name} back as Available?`}</p>
-          <p className="mt-2 text-sm text-muted">{undo.what === "Delete" ? "It returns as it was before you deleted it." : "The sale comes off."}</p>
+          <p className="font-display text-2xl">{undo.what === "Delete" ? `Add ${undo.name} back?` : undo.what === "Remove" ? `Put ${undo.name} back?` : `Put ${undo.name} back as Available?`}</p>
+          <p className="mt-2 text-sm text-muted">{undo.what === "Delete" ? "It returns as it was before you deleted it." : undo.what === "Remove" ? "It returns as it was before you removed it." : "The sale comes off."}</p>
           <div className="mt-5 flex gap-2">
             <button type="button" className="press h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-ink" onClick={commitUndo}>{undo.what === "Delete" ? "Add it back" : "Put it back"}</button>
             <button type="button" className="press h-11 rounded-full border border-line px-4 text-sm" onClick={() => setUndoOpen(false)}>Cancel</button>
@@ -1173,7 +1184,14 @@ export function House() {
                       const file = event.target.files?.[0];
                       if (!file) return;
                       void file.text().then(async (text) => {
-                        const next = await replaceFloor({ data: JSON.parse(text) });
+                        // A file that is not JSON gets a human answer, not the parser's (button audit V-8).
+                        let data: unknown;
+                        try {
+                          data = JSON.parse(text);
+                        } catch {
+                          throw new Error("That file is not a Ventory backup");
+                        }
+                        const next = await replaceFloor({ data });
                         setPieces(next);
                         setNotice("Backup restored");
                       }).catch((err: unknown) => setNotice(err instanceof Error ? err.message : "Could not import"));
@@ -2315,7 +2333,15 @@ function Editor({ initial, known = [], focus = null, onClose, onSave, onImport, 
   const [draft, setDraft] = useState(initial);
   const [batch, setBatch] = useState(false);
   const [convertNote, setConvertNote] = useState("");
+  const [discardAsk, setDiscardAsk] = useState(false);
   const set = (patch: Partial<PieceInput>) => setDraft((current) => ({ ...current, ...patch }));
+  // Closing with unsaved edits asks first; closing clean stays one tap (button audit V-3).
+  // The batch tray keeps its own state and closes as before.
+  const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
+  const tryClose = () => {
+    if (!batch && dirty) setDiscardAsk(true);
+    else onClose();
+  };
   useEffect(() => {
     if (!focus) return;
     const node = document.getElementById(`editor-${focus}`);
@@ -2325,7 +2351,8 @@ function Editor({ initial, known = [], focus = null, onClose, onSave, onImport, 
   }, [focus]);
   const control = "h-11 w-full rounded-xl border border-line bg-panel px-3 outline-none focus:border-accent";
   return (
-    <Overlay onClose={onClose}>
+    <>
+    <Overlay onClose={tryClose}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <p className="font-display text-3xl">{batch ? "Add a batch" : draft.id ? "Edit piece" : "Add a piece"}</p>
@@ -2500,11 +2527,24 @@ function Editor({ initial, known = [], focus = null, onClose, onSave, onImport, 
         </div>
         <div className="flex gap-2">
           <button type="submit" className="press h-11 rounded-full bg-accent px-5 text-sm font-medium text-accent-ink">Save</button>
-          <button type="button" className="press h-11 rounded-full border border-line px-5 text-sm" onClick={onClose}>Cancel</button>
+          <button type="button" className="press h-11 rounded-full border border-line px-5 text-sm" onClick={tryClose}>Cancel</button>
         </div>
       </form>
       )}
     </Overlay>
+    {discardAsk ? (
+      <div className="veil-in fixed inset-0 z-40 grid place-items-center bg-black/50 p-3" onClick={() => setDiscardAsk(false)}>
+        <div className="sheet-in w-full max-w-sm rounded-3xl border border-line bg-canvas p-5" onClick={(event) => event.stopPropagation()}>
+          <p className="font-display text-2xl">Discard changes?</p>
+          <p className="mt-2 text-sm text-muted">This piece has edits that are not saved yet.</p>
+          <div className="mt-5 flex gap-2">
+            <button type="button" className="press h-11 rounded-full border border-danger px-4 text-sm font-medium text-danger" onClick={onClose}>Discard</button>
+            <button type="button" className="press h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-ink" onClick={() => setDiscardAsk(false)}>Keep editing</button>
+          </div>
+        </div>
+      </div>
+    ) : null}
+    </>
   );
 }
 
