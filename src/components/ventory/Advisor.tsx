@@ -807,7 +807,7 @@ function PieceActs({
     <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink">
       {piece.status === "available" ? <button type="button" className="press" onClick={() => onKeep(piece)}>Keep</button> : null}
       {piece.status === "kept" ? <button type="button" className="press" onClick={() => onReturn(piece)}>Shelve</button> : null}
-      {piece.status === "incoming" ? <button type="button" className="press" onClick={() => onFlag(piece)}>Still coming</button> : null}
+      {piece.status === "incoming" ? <button type="button" className="press" onClick={() => onFlag(piece)}>Still coming — mark it late</button> : null}
       {piece.status === "incoming" ? <button type="button" className="press" onClick={() => onReturn(piece)}>It's here</button> : null}
       {(piece.status === "sold" || piece.wasSold) && piece.status !== "kept" && piece.status !== "available" ? <button type="button" className="press" onClick={() => onReturn(piece)}>Came back</button> : null}
       {piece.status === "available" || piece.status === "incoming" ? <button type="button" className="press" onClick={() => setReasonFor(reasonFor === piece.id ? null : piece.id)}>Remove</button> : null}

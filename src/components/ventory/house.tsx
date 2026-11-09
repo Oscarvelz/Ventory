@@ -525,7 +525,7 @@ export function House() {
     const word = next === "incoming" ? "Coming" : next === "sold" ? "Sold" : next === "available" ? "Available" : "Archive";
     const detail =
       next === "sold"
-        ? "It moves to Sold in History. Reverse stays up for a few seconds."
+        ? `It moves to Sold in History at ${money(piece.saleCents ?? piece.askCents)} via ${piece.channel || "Facebook Marketplace"}. Reverse stays up for a few seconds.`
         : unselectComing
           ? "It comes off Coming and goes back to Available. Nothing changes until you confirm."
           : next === "incoming"
@@ -2314,6 +2314,7 @@ function Overlay({ children, onClose }: { children: ReactNode; onClose: () => vo
 function Editor({ initial, known = [], focus = null, onClose, onSave, onImport, onTray }: { initial: PieceInput; known?: Piece[]; focus?: AdviceFocus | null; onClose: () => void; onSave: (input: PieceInput) => void; onImport?: (rows: PieceInput[]) => void; onTray?: (payload: TrayPayload) => void }) {
   const [draft, setDraft] = useState(initial);
   const [batch, setBatch] = useState(false);
+  const [convertNote, setConvertNote] = useState("");
   const set = (patch: Partial<PieceInput>) => setDraft((current) => ({ ...current, ...patch }));
   useEffect(() => {
     if (!focus) return;
@@ -2415,16 +2416,25 @@ function Editor({ initial, known = [], focus = null, onClose, onSave, onImport, 
             </select>
           </Field>
         </div>
-        <button
-          type="button"
-          className="press h-11 rounded-full border border-line text-sm"
-          onClick={() => {
-            const us = convertToUs(draft.sizeSystem, draft.sizeLabel, draft.fit);
-            if (us) set({ usSize: us });
-          }}
-        >
-          Convert to US {draft.usSize ? `· ${draft.usSize}` : ""}
-        </button>
+        <div>
+          <button
+            type="button"
+            className="press h-11 w-full rounded-full border border-line text-sm"
+            onClick={() => {
+              const us = convertToUs(draft.sizeSystem, draft.sizeLabel, draft.fit);
+              if (us) {
+                set({ usSize: us });
+                setConvertNote("");
+              } else {
+                // Say why, instead of silence (button audit V-2).
+                setConvertNote(draft.sizeLabel.trim() ? `No US size for ${draft.sizeSystem} ${draft.sizeLabel} yet.` : "Add a size first, then convert.");
+              }
+            }}
+          >
+            Convert to US {draft.usSize ? `· ${draft.usSize}` : ""}
+          </button>
+          {convertNote ? <p className="mt-1.5 text-xs text-muted">{convertNote}</p> : null}
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <Field id="editor-cost" label="Cost">
             <input inputMode="decimal" defaultValue={(draft.costCents / 100).toFixed(2)} onChange={(event) => set({ costCents: dollarsToCents(event.target.value) })} className={control} />
