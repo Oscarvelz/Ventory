@@ -215,6 +215,26 @@ test("profitOf: one definition — rebate lowers cost, delivery is collected but
   assert.equal(model.effectiveCostCents({ costCents: 100, buyRebateCents: 250 }), 0);
 });
 
+test("a batch of already-sold pieces: the batch's answer lands every unmarked line as a sale in the archive", () => {
+  const doc = "Classic Leather Riding Boots\n_ 43 = 9 ($22) *Home* for $55 — AddedSep03 - Sold\n_ 41 = 8 ($21) *Home* for $55 — AddedSep04";
+  const forSale = parseDetailedNotes(doc, today, false).rows;
+  assert.equal(forSale[0].kind, "sale");
+  assert.equal(forSale[1].kind, "stock");
+  assert.equal(forSale[1].input.status, "available");
+  const sold = parseDetailedNotes(doc, today, true).rows;
+  assert.equal(sold.length, 2);
+  for (const row of sold) {
+    assert.equal(row.kind, "sale");
+    assert.equal(row.input.wasSold, true);
+    assert.equal(row.input.status, "archived");
+    assert.equal(row.input.saleCents, 5500);
+  }
+  assert.equal(sold[1].input.receivedOn, "2026-09-04");
+  const batch = tray.buildTray(parseDetailedNotes(doc, today, true), [], tray.defaultRules());
+  assert.equal(batch.totals.sales, 2);
+  assert.equal(batch.totals.revenue, 11000);
+});
+
 test("a bare size number keeps CN by default and takes the batch's word when the batch says EU", () => {
   const parsed = parseDetailedNotes("# Test Boots\n_ 44 = 9.5 ($20) *Home* for $40 — AddedAug28", today, false);
   assert.equal(parsed.rows[0].sizeBare, true);

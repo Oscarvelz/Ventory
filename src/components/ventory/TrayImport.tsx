@@ -20,6 +20,7 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
   onClose: () => void;
 }) {
   const [text, setText] = useState("");
+  const [soldBatch, setSoldBatch] = useState(false);
   const [parsed, setParsed] = useState<ReturnType<typeof parseDetailedNotes> | null>(null);
   const [bareSize, setBareSize] = useState<"CN" | "EU">("CN");
   const [year, setYear] = useState("");
@@ -43,10 +44,21 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
   const preview = useMemo(() => (batch && decisions ? applyTray(batch, decisions, pieces) : null), [batch, decisions, pieces]);
 
   const review = () => {
-    const next = parseDetailedNotes(text, new Date(), false);
+    const next = parseDetailedNotes(text, new Date(), soldBatch);
     setParsed(next);
     setApplied(null);
     setDecisions(defaultDecisions(buildTray(next, pieces, rules)));
+  };
+
+  // The batch's own answer — stock for sale, or a batch of pieces already sold — is read
+  // into the parse itself (the parser's soldBatch), so flipping it re-reads the whole note.
+  const reclassify = (next: boolean) => {
+    setSoldBatch(next);
+    if (!text.trim()) return;
+    const reparsed = parseDetailedNotes(text, new Date(), next);
+    setParsed(reparsed);
+    setApplied(null);
+    setDecisions(defaultDecisions(buildTray(reparsed, pieces, rules)));
   };
 
   const csvRows = (): PieceInput[] => {
@@ -115,7 +127,7 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
         value={text}
         onChange={(event) => { setText(event.target.value); setParsed(null); setDecisions(null); }}
         className="mt-3 h-40 w-full rounded-2xl border border-line bg-canvas p-3 text-sm outline-none focus:border-accent"
-        placeholder={"Yellow Detail Classic Cowboy Design\n_ 44 = 9.5 ($19) *Home* for $40 — AddedAug28 - Sold\n_ 42 = 8.5 ($18) *Home* for $40 — AddedAug29"}
+        placeholder={"Classic Leather Riding Boots\n_ 43 = 9 ($22) *Home* for $55 — AddedSep03 - Sold\n_ 41 = 8 ($21) *Home* for $55 — AddedSep04"}
       />
       <div className="mt-3 flex gap-2">
         <button type="button" className="press h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-ink" disabled={!text.trim()} onClick={review}>
@@ -143,6 +155,14 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
           <div className="mt-5 rounded-2xl border border-line bg-panel p-4">
             <p className="text-sm font-medium">Batch rules — asked once</p>
             <div className="mt-3 grid gap-3">
+              <div>
+                <p className="text-xs text-muted">This batch is <strong>{soldBatch ? "already sold" : "for sale"}</strong>. Already sold lands in the archive and counts in your numbers; for sale lands on the floor. A line that says Sold itself always counts as sold — flipping this re-reads the whole note.</p>
+                <div className="mt-1 flex gap-2">
+                  {([[false, "For sale"], [true, "Already sold"]] as const).map(([value, label]) => (
+                    <button key={label} type="button" aria-pressed={soldBatch === value} className={chip(soldBatch === value)} onClick={() => reclassify(value)}>{label}</button>
+                  ))}
+                </div>
+              </div>
               <div>
                 <p className="text-xs text-muted">Bare size numbers (no EU or CN written on the line) will be read as <strong>{bareSize}</strong>.</p>
                 <div className="mt-1 flex gap-2">
