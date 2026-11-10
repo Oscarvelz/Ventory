@@ -1,8 +1,60 @@
-import { useMemo, useState } from "react";
-import { Check, CircleAlert } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { BadgePercent, CalendarDays, Check, CircleAlert, CircleHelp, CircleUserRound, Layers, ListChecks, MapPin, NotebookPen, PackageSearch, Ruler, Scale, Tag, Truck, Undo2 } from "lucide-react";
 import { dollarsToCents, emptyInput, money, type Piece, type PieceInput } from "@/lib/ventory/model";
 import { parseDetailedNotes } from "@/lib/ventory/paste";
 import { applyTray, buildTray, defaultDecisions, defaultRules, styleKey, type BatchRules, type TrayDecisions } from "@/lib/ventory/tray";
+import { tone as litTone, toneInk } from "@/lib/ventory/tones";
+
+/* The review's architecture (1.3.0): the tray used to read as one long scroll of prose —
+   Oscar's word: boring text, no design. Now it has chapters with kickers, a count band
+   instead of a chip river, rule rows with their own icons, decision cards whose evidence
+   sits in a quiet inner panel, and a closing import card that ends the review like a
+   footer. The jewel material is the same one the Main and History cards wear (1.2.4). */
+function JewelDisc({ tone: rawTone, children }: { tone: string; children: ReactNode }) {
+  const tone = litTone(rawTone);
+  return (
+    <span
+      className="grid size-8 shrink-0 place-items-center rounded-full"
+      style={{
+        background: `linear-gradient(145deg, color-mix(in srgb, ${tone} 82%, #ffffff) 0%, ${tone} 55%, color-mix(in srgb, ${tone} 76%, #000000) 100%)`,
+        color: toneInk("#f6f3ec"),
+        boxShadow: `0 6px 14px -6px ${tone}, inset 0 1px 0 rgba(255, 255, 255, 0.35)`,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function Kicker({ children, right }: { children: ReactNode; right?: ReactNode }) {
+  return (
+    <div className="mt-6 mb-2 flex items-baseline gap-3 first:mt-0">
+      <p className="text-[11px] font-semibold tracking-[0.16em] text-accent uppercase">{children}</p>
+      <span className="h-px flex-1 bg-line" />
+      {right ? <span className="text-xs text-muted">{right}</span> : null}
+    </div>
+  );
+}
+
+const GROUP_STYLE: Record<string, { tone: string; icon: typeof CircleAlert }> = {
+  returns: { tone: "#a33b32", icon: Undo2 },
+  "bad-arithmetic": { tone: "#b08a3e", icon: Scale },
+  "uncertain-rebate": { tone: "#b08a3e", icon: BadgePercent },
+  names: { tone: "#8d6aad", icon: CircleUserRound },
+  "coming-sold": { tone: "#5d86ad", icon: Truck },
+  "true-cost": { tone: "#b08a3e", icon: CircleHelp },
+  "personal-notes": { tone: "#5f8f72", icon: NotebookPen },
+};
+
+const CLASS_TONE: Record<string, string> = {
+  Sale: "#5f8f72",
+  Stock: "#5d86ad",
+  Gift: "#8d6aad",
+  Returned: "#a33b32",
+  Used: "#b08a3e",
+  Kept: "#4f7f8a",
+  "Failed sale": "#a33b32",
+};
 
 export type TrayPayload = { add: PieceInput[]; update: PieceInput[]; batchNotes: string[] };
 
@@ -91,6 +143,7 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
 
   const control = "h-11 w-full rounded-xl border border-line bg-panel px-3 outline-none focus:border-accent";
   const chip = (active: boolean) => `press h-9 rounded-full border px-3 text-sm ${active ? "border-accent bg-accent-soft" : "border-line"}`;
+  const seg = (active: boolean) => `press flex min-h-11 items-center justify-center rounded-xl border px-2 py-2 text-center text-[13px] leading-snug ${active ? "border-accent bg-accent-soft font-medium text-ink" : "border-line text-muted"}`;
   const lightDot = { green: "#3d9970", amber: "#d9930d", red: "#c0392b" } as const;
 
   if (applied || csvDone) {
@@ -166,33 +219,76 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
 
       {batch && decisions ? (
         <>
-          <div className="mt-5 rounded-2xl border border-line bg-panel p-4">
-            <p className="text-sm font-medium">Batch rules — asked once</p>
-            <div className="mt-3 grid gap-3">
-              <div>
-                <p className="text-xs text-muted">This batch is <strong>{soldBatch ? "already sold" : "on hand"}</strong>. Already sold lands in the archive and counts in your numbers; on hand lands on the floor. A line that says Sold itself always counts as sold — flipping this re-reads the whole note.</p>
-                <div className="mt-1 flex gap-2">
-                  {([[false, "On hand"], [true, "Already sold"]] as const).map(([value, label]) => (
-                    <button key={label} type="button" aria-pressed={soldBatch === value} className={chip(soldBatch === value)} onClick={() => reclassify(value)}>{label}</button>
-                  ))}
+          <Kicker>The count</Kicker>
+          <div
+            className="rounded-2xl border px-4 py-3"
+            style={{
+              background: `linear-gradient(120deg, color-mix(in srgb, ${litTone("#5f8f72")} 22%, var(--v-panel)) 0%, var(--v-panel) 70%)`,
+              borderColor: `color-mix(in srgb, ${litTone("#5f8f72")} 45%, transparent)`,
+            }}
+          >
+            <div className="grid grid-cols-3 gap-3">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold tracking-[0.14em] uppercase" style={{ color: `color-mix(in srgb, ${litTone("#5f8f72")} 75%, var(--v-ink))` }}>In</p>
+                <p className="mt-0.5 truncate font-display text-xl leading-none tabular-nums">{money(batch.totals.revenue)}</p>
+                <p className="mt-1 truncate text-[11px] text-muted">{batch.totals.sales} sales · {batch.totals.salesDated} dated</p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold tracking-[0.14em] text-muted uppercase">Stock cost</p>
+                <p className="mt-0.5 truncate font-display text-xl leading-none tabular-nums">{money(batch.totals.stockCost)}</p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold tracking-[0.14em] text-muted uppercase">Lines</p>
+                <p className="mt-0.5 truncate font-display text-xl leading-none tabular-nums">{batch.totals.rows}</p>
+              </div>
+            </div>
+            <p className="mt-2 border-t border-line/50 pt-2 text-[11px] text-muted">
+              rebates {money(batch.totals.rebates)} · delivery {money(batch.totals.delivery)} · {batch.totals.salesNoPrice} sales with no price
+              {batch.loose.length ? ` · ${batch.loose.length} loose ${batch.loose.length === 1 ? "line" : "lines"}, not pieces` : ""}
+            </p>
+          </div>
+
+          <Kicker>Batch rules — asked once</Kicker>
+          <div className="rounded-2xl border border-line bg-panel p-4">
+            <div className="grid gap-4">
+              <div className="flex min-w-0 gap-3">
+                <JewelDisc tone="#5f8f72"><Layers className="size-4" strokeWidth={1.75} /></JewelDisc>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">This batch is {soldBatch ? "already sold" : "on hand"}</p>
+                  <p className="mt-0.5 text-xs text-muted">Flipping re-reads the whole note.</p>
+                  <div className="mt-2 flex gap-2">
+                    {([[false, "On hand"], [true, "Already sold"]] as const).map(([value, label]) => (
+                      <button key={label} type="button" aria-pressed={soldBatch === value} className={chip(soldBatch === value)} onClick={() => reclassify(value)}>{label}</button>
+                    ))}
+                  </div>
                 </div>
               </div>
-              <div>
-                <p className="text-xs text-muted">Bare size numbers (no EU or CN written on the line) will be read as <strong>{bareSize}</strong>.</p>
-                <div className="mt-1 flex gap-2">
-                  {(["CN", "EU"] as const).map((system) => (
-                    <button key={system} type="button" aria-pressed={bareSize === system} className={chip(bareSize === system)} onClick={() => setBareSize(system)}>{system}</button>
-                  ))}
+              <div className="flex min-w-0 gap-3">
+                <JewelDisc tone="#5d86ad"><Ruler className="size-4" strokeWidth={1.75} /></JewelDisc>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">Bare sizes read as {bareSize}</p>
+                  <p className="mt-0.5 text-xs text-muted">When a line writes no EU or CN.</p>
+                  <div className="mt-2 flex gap-2">
+                    {(["CN", "EU"] as const).map((system) => (
+                      <button key={system} type="button" aria-pressed={bareSize === system} className={chip(bareSize === system)} onClick={() => setBareSize(system)}>{system}</button>
+                    ))}
+                  </div>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="block text-sm">
-                  <span className="text-muted">Batch year (when a date has none)</span>
-                  <input value={year} onChange={(event) => setYear(event.target.value)} inputMode="numeric" placeholder="Optional" className={`mt-1 ${control}`} />
+              <div className="flex min-w-0 gap-3">
+                <JewelDisc tone="#b08a3e"><CalendarDays className="size-4" strokeWidth={1.75} /></JewelDisc>
+                <label className="block min-w-0 flex-1 text-sm">
+                  <span className="font-medium">Batch year</span>
+                  <span className="mt-0.5 block text-xs text-muted">When a date has none</span>
+                  <input value={year} onChange={(event) => setYear(event.target.value)} inputMode="numeric" placeholder="Optional" className={`mt-2 ${control}`} />
                 </label>
-                <div>
-                  <p className="text-sm text-muted">Where, when a line does not say</p>
-                  <div className="mt-1 flex gap-2">
+              </div>
+              <div className="flex min-w-0 gap-3">
+                <JewelDisc tone="#4f7f8a"><MapPin className="size-4" strokeWidth={1.75} /></JewelDisc>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">Where</p>
+                  <p className="mt-0.5 text-xs text-muted">When a line doesn't say</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
                     {([["", "Anywhere"], ["home", "Home"], ["car", "Car"]] as const).map(([value, label]) => (
                       <button key={label} type="button" aria-pressed={place === value} className={chip(place === value)} onClick={() => setPlace(value)}>{label}</button>
                     ))}
@@ -200,92 +296,68 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
                 </div>
               </div>
               {batch.styles.length ? (
-                <div>
-                  <p className="text-xs text-muted">Usual asking price per style — fills the ask on sales that never wrote one, so the price cut can be derived.</p>
-                  <div className="mt-2 grid gap-2">
-                    {batch.styles.map((style) => (
-                      <label key={style} className="flex items-center gap-3 text-sm">
-                        <span className="min-w-0 flex-1 truncate">{style}</span>
-                        <input
-                          value={usualAsk[styleKey(style)] ?? ""}
-                          onChange={(event) => setUsualAsk((current) => ({ ...current, [styleKey(style)]: event.target.value }))}
-                          inputMode="decimal"
-                          placeholder="$"
-                          className="h-9 w-24 rounded-xl border border-line bg-canvas px-3 outline-none focus:border-accent"
-                        />
-                      </label>
-                    ))}
+                <div className="flex min-w-0 gap-3">
+                  <JewelDisc tone="#8d6aad"><Tag className="size-4" strokeWidth={1.75} /></JewelDisc>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">Usual ask per style</p>
+                    <p className="mt-0.5 text-xs text-muted">Fills the ask on sales that never wrote one, so the price cut can be derived.</p>
+                    <div className="mt-2 grid min-w-0 gap-2">
+                      {batch.styles.map((style) => (
+                        <label key={style} className="flex min-w-0 items-center gap-3 text-sm">
+                          <span className="min-w-0 flex-1 truncate">{style}</span>
+                          <input
+                            value={usualAsk[styleKey(style)] ?? ""}
+                            onChange={(event) => setUsualAsk((current) => ({ ...current, [styleKey(style)]: event.target.value }))}
+                            inputMode="decimal"
+                            placeholder="$"
+                            className="h-9 w-24 rounded-xl border border-line bg-canvas px-3 outline-none focus:border-accent"
+                          />
+                        </label>
+                      ))}
+                    </div>
                   </div>
                 </div>
               ) : null}
             </div>
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-2 text-xs">
-            <span className="rounded-full border border-line px-3 py-1">{batch.totals.rows} lines</span>
-            <span className="rounded-full border border-line px-3 py-1">{batch.totals.sales} sales ({batch.totals.salesDated} dated)</span>
-            <span className="rounded-full border border-line px-3 py-1">{batch.totals.salesNoPrice} sales with no price</span>
-            <span className="rounded-full border border-line px-3 py-1">In: {money(batch.totals.revenue)}</span>
-            <span className="rounded-full border border-line px-3 py-1">Stock cost: {money(batch.totals.stockCost)}</span>
-            <span className="rounded-full border border-line px-3 py-1">Rebates: {money(batch.totals.rebates)}</span>
-            <span className="rounded-full border border-line px-3 py-1">Delivery: {money(batch.totals.delivery)}</span>
-            {batch.loose.length ? <span className="rounded-full border border-line px-3 py-1">{batch.loose.length} loose lines, not pieces</span> : null}
-          </div>
+          {batch.groups.length || batch.clusters.length ? (
+            <Kicker right={`${batch.groups.length + batch.clusters.length} to decide`}>Needs your word</Kicker>
+          ) : null}
 
-          {batch.groups.map((group) => (
-            <div key={group.id} className="mt-4 rounded-2xl border border-line bg-panel p-4">
-              <p className="flex items-start gap-2 text-sm font-medium">
-                <CircleAlert className="mt-0.5 size-4 shrink-0 text-muted" strokeWidth={1.75} />
-                {group.label} · {group.id === "personal-notes" ? batch.batchNotes.length : group.rowIndexes.length}
-              </p>
-              {group.id === "personal-notes" ? (
-                <ul className="mt-2 space-y-1">
-                  {batch.batchNotes.map((note, i) => <li key={i} className="truncate text-xs text-muted">{note}</li>)}
-                </ul>
-              ) : (
-                <ul className="mt-2 space-y-1">
-                  {group.rowIndexes.slice(0, 6).map((index) => (
-                    <li key={index} className="truncate text-xs text-muted">{batch.rows[index].row.raw}</li>
-                  ))}
-                  {group.rowIndexes.length > 6 ? <li className="text-xs text-muted">+{group.rowIndexes.length - 6} more</li> : null}
-                </ul>
-              )}
-              <div className="mt-3 flex flex-wrap gap-2">
-                {group.options.map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    aria-pressed={decisions.groups[group.id] === option.id}
-                    className={chip(decisions.groups[group.id] === option.id)}
-                    onClick={() => setDecisions((current) => (current ? { ...current, groups: { ...current.groups, [group.id]: option.id } } : current))}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-
-          {batch.clusters.map((cluster) => {
-            const batchMembers = cluster.members.filter((m) => m.source === "batch");
-            const floorMembers = cluster.members.filter((m) => m.source === "floor");
+          {batch.groups.map((group) => {
+            const style = GROUP_STYLE[group.id] ?? { tone: "#b08a3e", icon: CircleAlert };
+            const GroupIcon = style.icon;
+            const count = group.id === "personal-notes" ? batch.batchNotes.length : group.rowIndexes.length;
             return (
-              <div key={cluster.id} className="mt-4 rounded-2xl border border-line bg-panel p-4">
-                <p className="text-sm font-medium">Already here? {cluster.styleName} · cost {money(cluster.costCents)}</p>
-                <p className="mt-1 text-xs text-muted">
-                  {floorMembers.length ? `${floorMembers.length} on your floor · ` : ""}{batchMembers.length} in this batch
-                  {cluster.sizeDiffers ? " · the size is written two ways — in your documents the same piece does that" : ""}
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {([["same", "Same piece — complete the record"], ["different", "Different pieces — import as new"]] as const).map(([value, label]) => (
+              <div key={group.id} className="mb-3 rounded-2xl border border-line bg-panel p-4">
+                <div className="flex items-start gap-3">
+                  <JewelDisc tone={style.tone}><GroupIcon className="size-4" strokeWidth={1.75} /></JewelDisc>
+                  <p className="min-w-0 flex-1 text-sm leading-snug font-medium">{group.label}</p>
+                  <span className="shrink-0 rounded-full border border-line px-2 py-0.5 text-xs tabular-nums text-muted">{count}</span>
+                </div>
+                {group.id === "personal-notes" ? (
+                  <ul className="mt-3 space-y-1 rounded-xl bg-canvas/60 px-3 py-2">
+                    {batch.batchNotes.map((note, i) => <li key={i} className="truncate text-xs text-muted">{note}</li>)}
+                  </ul>
+                ) : (
+                  <ul className="mt-3 space-y-1 rounded-xl bg-canvas/60 px-3 py-2">
+                    {group.rowIndexes.slice(0, 6).map((index) => (
+                      <li key={index} className="truncate text-xs text-muted">{batch.rows[index].row.raw}</li>
+                    ))}
+                    {group.rowIndexes.length > 6 ? <li className="text-xs text-muted">+{group.rowIndexes.length - 6} more</li> : null}
+                  </ul>
+                )}
+                <div className={group.options.length === 2 ? "mt-3 grid grid-cols-2 gap-2" : "mt-3 flex flex-wrap gap-2"}>
+                  {group.options.map((option) => (
                     <button
-                      key={value}
+                      key={option.id}
                       type="button"
-                      aria-pressed={decisions.clusters[cluster.id] === value}
-                      className={chip(decisions.clusters[cluster.id] === value)}
-                      onClick={() => setDecisions((current) => (current ? { ...current, clusters: { ...current.clusters, [cluster.id]: value } } : current))}
+                      aria-pressed={decisions.groups[group.id] === option.id}
+                      className={group.options.length === 2 ? seg(decisions.groups[group.id] === option.id) : chip(decisions.groups[group.id] === option.id)}
+                      onClick={() => setDecisions((current) => (current ? { ...current, groups: { ...current.groups, [group.id]: option.id } } : current))}
                     >
-                      {label}
+                      {option.label}
                     </button>
                   ))}
                 </div>
@@ -293,7 +365,44 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
             );
           })}
 
-          <ul className="mt-4 max-h-80 space-y-1 overflow-auto pr-1">
+          {batch.clusters.map((cluster) => {
+            const batchMembers = cluster.members.filter((m) => m.source === "batch");
+            const floorMembers = cluster.members.filter((m) => m.source === "floor");
+            return (
+              <div key={cluster.id} className="mb-3 rounded-2xl border border-line bg-panel p-4">
+                <div className="flex items-start gap-3">
+                  <JewelDisc tone="#4f7f8a"><PackageSearch className="size-4" strokeWidth={1.75} /></JewelDisc>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-semibold tracking-[0.14em] uppercase" style={{ color: `color-mix(in srgb, ${litTone("#4f7f8a")} 75%, var(--v-ink))` }}>Already here?</p>
+                    <p className="mt-0.5 text-[15px] leading-snug font-medium">{cluster.styleName}</p>
+                    <p className="mt-1 text-xs text-muted">
+                      cost {money(cluster.costCents)} · {floorMembers.length ? `${floorMembers.length} on your floor · ` : ""}{batchMembers.length} in this batch
+                      {cluster.sizeDiffers ? " · the size is written two ways — the same piece does that" : ""}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {([["same", "Same piece", "complete the record"], ["different", "Different pieces", "import as new"]] as const).map(([value, title, sub]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      aria-pressed={decisions.clusters[cluster.id] === value}
+                      className={`${seg(decisions.clusters[cluster.id] === value)} flex-col gap-0`}
+                      onClick={() => setDecisions((current) => (current ? { ...current, clusters: { ...current.clusters, [cluster.id]: value } } : current))}
+                    >
+                      <span>{title}</span>
+                      <span className="text-[11px] font-normal text-muted">{sub}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+
+          <Kicker right={`importing ${batch.rows.filter((r) => decisions.include[r.index] !== false).length} of ${batch.rows.length}`}>
+            <span className="inline-flex items-center gap-1.5"><ListChecks className="size-3.5" strokeWidth={1.75} /> Every line</span>
+          </Kicker>
+          <ul className="max-h-80 divide-y divide-line/50 overflow-auto rounded-2xl border border-line bg-panel px-3">
             {batch.rows.map((trayRow) => {
               const input = trayRow.input;
               const bits = [
@@ -304,23 +413,31 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
                 input.deliveryCents ? `delivery ${money(input.deliveryCents)}` : "",
                 trayRow.priceCut ? `cut ${money(trayRow.priceCut)}` : "",
               ].filter(Boolean).join(" · ");
+              const classTone = litTone(CLASS_TONE[trayRow.classLabel.split(" · ")[0]] ?? "#5f8f72");
               return (
-                <li key={trayRow.index} className="flex items-start gap-2 rounded-xl border border-line/60 px-3 py-2">
+                <li key={trayRow.index} className="flex items-start gap-2.5 py-2.5">
                   <input
                     type="checkbox"
-                    className="mt-1"
+                    className="mt-1 size-4 shrink-0 accent-[var(--v-accent)]"
                     checked={decisions.include[trayRow.index] !== false}
                     onChange={(event) => setDecisions((current) => (current ? { ...current, include: { ...current.include, [trayRow.index]: event.target.checked } } : current))}
                     aria-label={`Import line ${trayRow.index + 1}`}
                   />
                   <span className="mt-1.5 size-2.5 shrink-0 rounded-full" style={{ background: lightDot[trayRow.light] }} />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm">
-                      <span className="text-muted">{trayRow.classLabel} · </span>
-                      {input.name}{input.sizeLabel ? ` · ${input.sizeSystem} ${input.sizeLabel}` : ""}{input.usSize ? ` · US ${input.usSize}` : ""}
-                      {bits ? <span className="text-muted"> · {bits}</span> : ""}
+                    <span className="flex items-baseline gap-2">
+                      <span
+                        className="shrink-0 rounded-full px-2 py-px text-[10px] font-semibold tracking-wide uppercase"
+                        style={{ background: `color-mix(in srgb, ${classTone} 18%, transparent)`, color: `color-mix(in srgb, ${classTone} 80%, var(--v-ink))` }}
+                      >
+                        {trayRow.classLabel}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                        {input.name}{input.sizeLabel ? ` · ${input.sizeSystem} ${input.sizeLabel}` : ""}{input.usSize ? ` · US ${input.usSize}` : ""}
+                      </span>
                     </span>
-                    <span className="block truncate text-xs text-muted">{trayRow.row.raw}</span>
+                    {bits ? <span className="mt-0.5 block truncate text-xs text-muted tabular-nums">{bits}</span> : null}
+                    <span className="block truncate text-[11px] text-faint">{trayRow.row.raw}</span>
                   </span>
                 </li>
               );
@@ -328,17 +445,24 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
           </ul>
 
           {preview ? (
-            <button
-              type="button"
-              className="press mt-4 h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-ink disabled:opacity-40"
-              disabled={!preview.add.length && !preview.update.length}
-              onClick={() => {
-                onApply(preview);
-                setApplied(preview);
-              }}
-            >
-              Import {preview.add.length} {preview.add.length === 1 ? "piece" : "pieces"}{preview.update.length ? ` · complete ${preview.update.length} on the floor` : ""}
-            </button>
+            <div className="mt-4 rounded-2xl border border-line bg-panel p-3">
+              <p className="px-1 pb-2 text-xs text-muted">
+                {preview.add.length} new {preview.add.length === 1 ? "piece" : "pieces"}
+                {preview.update.length ? ` · ${preview.update.length} completed on the floor` : ""}
+                {batch.totals.revenue ? ` · ${money(batch.totals.revenue)} in` : ""}
+              </p>
+              <button
+                type="button"
+                className="press h-12 w-full rounded-full bg-accent text-sm font-medium text-accent-ink disabled:opacity-40"
+                disabled={!preview.add.length && !preview.update.length}
+                onClick={() => {
+                  onApply(preview);
+                  setApplied(preview);
+                }}
+              >
+                Import {preview.add.length} {preview.add.length === 1 ? "piece" : "pieces"}{preview.update.length ? ` · complete ${preview.update.length} on the floor` : ""}
+              </button>
+            </div>
           ) : null}
         </>
       ) : null}
