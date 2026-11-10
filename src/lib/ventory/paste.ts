@@ -98,7 +98,7 @@ function marksOf(line: string) {
 /** A death in the family, written into the notebook. It dates the batch; it is never piece data. */
 const PERSONAL_RE = /(mi\s+t[ií]a\s+ha\s+muerto|my\s+aunt\s+(?:has\s+)?died|ha\s+muerto|passed\s+away)/i;
 
-const FAILED_SALE_RE = /\bno los quiso\b|\bno quiso\b|\bdid ?n[o']?t want\b|\brejected\b/i;
+const FAILED_SALE_RE = /\bno (?:l[oa]s? )?quiso\b|\bdid ?n[o']?t want\b|\brejected\b/i;
 const KEPT_RE = /\badded this to my wallet\b|\bto my wallet\b|\bfor myself\b|\bi'?m keeping\b|\bkeeping (?:it|this|them) for me\b|\bme lo quedo\b/i;
 
 function stripIndex(line: string) {
@@ -573,7 +573,7 @@ function noteBits(line: string) {
   const bits: string[] = [];
   const plain = stripMarks(line);
   if (/\bgif{1,2}ts?\b|\bregalos?\b|\bpresent\b|\bbirthday\b|\bgave it to me\b/i.test(plain)) bits.push("Gift");
-  if (/\breturned\b/i.test(plain)) bits.push("Returned");
+  if (/\breturned\b|\bdevuelt[oa]s?\b/i.test(plain)) bits.push("Returned");
   if (/likely to return/i.test(plain)) bits.push("Likely return");
   if (/full refund/i.test(plain)) bits.push("Full refund");
   const comment = line.match(/\/\*\s*(.+?)\s*\*\//);
@@ -718,7 +718,7 @@ export function parseDetailedNotes(text: string, today = new Date(), soldBatch =
     const unsure = nextUnsure || /\?/.test(line) || /likely to return/i.test(line) || approxCost;
     nextUnsure = false;
 
-    const returned = /\breturned\b/i.test(work);
+    const returned = /\breturned\b|\bdevuelt[oa]s?\b/i.test(work);
     const failed = FAILED_SALE_RE.test(work);
     const keptLine = KEPT_RE.test(work);
     const giftOut = /\bpresent\b/i.test(work) || (/\bgifts?\b/i.test(work) && !!person) || (/\bmine\b/i.test(work) && !!person && /\bto\s+\p{Lu}/u.test(work));

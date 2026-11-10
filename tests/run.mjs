@@ -170,6 +170,16 @@ test("kept and failed-sale lines land in their own classes", () => {
   assert.equal(failed.input.wasSold, false);
 });
 
+test("the rejection and the return speak Spanish too, in every number", () => {
+  const [singular] = rowsOf("# Test Watches\n_ Classic watch ($20) *Home* for $48 — AddedApr1. No lo quiso luego");
+  assert.equal(singular.kind, "failed-sale");
+  assert.equal(singular.input.clientName, "");
+  const [devuelto] = rowsOf("# Test Boots\n_ 45 = 10 ($20) *Home* for $40 — AddedFeb13 - Fue devuelto");
+  assert.equal(devuelto.kind, "returned");
+  const [devuelta] = rowsOf("# Test Watches\n_ Classic watch ($20) *Home* for $40 — AddedFeb13 - Fue devuelta");
+  assert.equal(devuelta.kind, "returned");
+});
+
 test("gift words are captured in the plural too, and a ($Gift) cost is a gift cost", () => {
   const [plural] = rowsOf("# Test Boots\n_ 44 = 9.5 ($28) *Home* for $40 — AddedAug28 - Sold GIFTS 🥬💚");
   assert.match(plural.input.notes, /Gift/);
