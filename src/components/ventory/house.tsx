@@ -10,6 +10,7 @@ import { AgeColumns, Bars, Count, Delta, Gauge, Histogram, Kicker, PairBars, Seg
 import { ExportCenter } from "@/components/ventory/ExportCenter";
 import { ageTone, cash, compare, halfSize, marginOf, measure, pct, series, sizeName, TONES } from "@/lib/ventory/metrics";
 import { convertToUs } from "@/lib/ventory/sizes";
+import { APP_VERSION } from "@/spa/config";
 import { addSamples, applyTrayImport, clearSelected, createCheckpoint, deleteAd, deletePiece, importPieces, isLegacySample, loadFloor, removeSamples, replaceFloor, sampleSetSize, saveAd, saveAds, saveMark, savePiece, saveTheme } from "@/lib/ventory/server";
 import { asTheme, isLightTheme, LIGHT_THEMES, THEMES, type ThemeId } from "@/lib/ventory/themes";
 import { tone as litTone, toneInk } from "@/lib/ventory/tones";
@@ -1291,6 +1292,7 @@ export function House() {
             <AccountCard />
             <SignOutCard />
           </div>
+          <p className="mt-4 pb-1 text-center text-xs text-faint">Ventory · Version {APP_VERSION}</p>
         </Overlay>
       ) : null}
 

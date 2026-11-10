@@ -1,5 +1,5 @@
 // Ventory service worker: the app opens with no internet. Bump VERSION on every release.
-const VERSION = "ventory-1.2.1";
+const VERSION = "ventory-1.2.2";
 const CORE = ["./", "./index.html", "./manifest.webmanifest", "./favicon.svg", "./icon-192.png", "./icon-512.png", "./precache.json"];
 
 self.addEventListener("install", (event) => {
