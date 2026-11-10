@@ -717,23 +717,28 @@ export function House() {
         rippleNav(next);
       }}
     >
-      <header ref={topRef} className="shelf-top sticky top-0 z-30 -mx-4 flex items-center justify-between gap-3 bg-canvas px-4 pt-[max(0.25rem,env(safe-area-inset-top))] pb-3 lg:-mx-8 lg:px-8">
+      <header ref={topRef} className="shelf-top sticky top-0 z-30 -mx-4 flex items-start justify-between gap-3 bg-canvas px-4 pt-[max(0.25rem,env(safe-area-inset-top))] pb-3 lg:-mx-8 lg:px-8">
         <Wordmark className="text-[2.156rem]" />
-        <div className="flex items-center gap-1.5">
+        {/* Two-storey corner (1.2.6, Oscar's word): Add owns the top-right corner alone, and
+            Day/Night, Export and Settings step down to a smaller second row beneath it, so the
+            shelf grows taller and the cluster reads at a glance. The Tron beams anchor to the
+            shelf's bottom edge, so they follow the taller shelf on their own. */}
+        <div className="flex flex-col items-end gap-1.5">
           <button type="button" aria-label="Add" className="press grid size-9 place-items-center rounded-full bg-accent text-accent-ink" onClick={() => { setFilterOpen(false); setEditorFocus(null); setEditor(emptyInput()); }}>
             <Plus className="size-4" strokeWidth={1.75} />
           </button>
-          <button type="button" aria-label={isLightTheme(theme) ? "Night" : "Day"} className="press grid size-9 place-items-center rounded-full border border-line" onClick={flipTheme}>
-            {isLightTheme(theme) ? <Moon className="size-4" strokeWidth={1.75} /> : <Sun className="size-4" strokeWidth={1.75} />}
-          </button>
-          {/* Export lives in the header now (1.1.3, Faro's placement: a round icon button in the top
-              cluster, copied at Oscar's word) — the desk row below is back to its two tabs. */}
-          <button type="button" aria-label="Export a report" aria-haspopup="dialog" className="press grid size-9 place-items-center rounded-full border border-line" onClick={() => setExporting(true)}>
-            <FileDown className="size-4" strokeWidth={1.75} />
-          </button>
-          <button type="button" aria-label="Settings" className="press grid size-9 place-items-center rounded-full border border-line" onClick={() => { setFilterOpen(false); setOpenSettings([]); setWipe([]); setWipeAsk(false); setSettings(true); }}>
-            <SlidersHorizontal className="size-4" strokeWidth={1.75} />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button type="button" aria-label={isLightTheme(theme) ? "Night" : "Day"} className="press grid size-8 place-items-center rounded-full border border-line" onClick={flipTheme}>
+              {isLightTheme(theme) ? <Moon className="size-3.5" strokeWidth={1.75} /> : <Sun className="size-3.5" strokeWidth={1.75} />}
+            </button>
+            {/* Export lives in the header (1.1.3, Faro's placement) — since 1.2.6 on the lower row. */}
+            <button type="button" aria-label="Export a report" aria-haspopup="dialog" className="press grid size-8 place-items-center rounded-full border border-line" onClick={() => setExporting(true)}>
+              <FileDown className="size-3.5" strokeWidth={1.75} />
+            </button>
+            <button type="button" aria-label="Settings" className="press grid size-8 place-items-center rounded-full border border-line" onClick={() => { setFilterOpen(false); setOpenSettings([]); setWipe([]); setWipeAsk(false); setSettings(true); }}>
+              <SlidersHorizontal className="size-3.5" strokeWidth={1.75} />
+            </button>
+          </div>
         </div>
       </header>
 

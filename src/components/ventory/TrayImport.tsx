@@ -50,11 +50,13 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
     setDecisions(defaultDecisions(buildTray(next, pieces, rules)));
   };
 
-  // The batch's own answer — stock for sale, or a batch of pieces already sold — is read
-  // into the parse itself (the parser's soldBatch), so flipping it re-reads the whole note.
+  // The batch's own answer — products on hand, or a batch of pieces already sold — is read
+  // into the parse itself (the parser's soldBatch), so flipping it after a review re-reads
+  // the whole note. Before any review it simply records the answer (1.2.6: the question is
+  // asked on the entry screen, where Oscar looks for it, not only inside the review).
   const reclassify = (next: boolean) => {
     setSoldBatch(next);
-    if (!text.trim()) return;
+    if (!parsed || !text.trim()) return;
     const reparsed = parseDetailedNotes(text, new Date(), next);
     setParsed(reparsed);
     setApplied(null);
@@ -127,8 +129,20 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
         value={text}
         onChange={(event) => { setText(event.target.value); setParsed(null); setDecisions(null); }}
         className="mt-3 h-40 w-full rounded-2xl border border-line bg-canvas p-3 text-sm outline-none focus:border-accent"
-        placeholder={"Classic Leather Riding Boots\n_ 43 = 9 ($22) *Home* for $55 — AddedSep03 - Sold\n_ 41 = 8 ($21) *Home* for $55 — AddedSep04"}
+        placeholder={"Paste the whole batch note here. Ventory reads it line by line — size, cost, place and price — and shows you how each line lands before you import."}
       />
+      {/* The entrada/salida question, asked up front (1.2.6): products he has, or products he
+          already sold. The same answer lives in the review's rules card, where flipping it
+          re-reads the note. */}
+      <div className="mt-4 rounded-2xl border border-line bg-panel p-4">
+        <p className="text-sm font-medium">Products you have, or already sold?</p>
+        <div className="mt-2 flex gap-2">
+          {([[false, "On hand"], [true, "Already sold"]] as const).map(([value, label]) => (
+            <button key={label} type="button" aria-pressed={soldBatch === value} className={chip(soldBatch === value)} onClick={() => reclassify(value)}>{label}</button>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-muted">On hand lands on the floor. Already sold lands in the archive and counts in your numbers. A line that says Sold itself always counts as sold either way.</p>
+      </div>
       <div className="mt-3 flex gap-2">
         <button type="button" className="press h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-ink" disabled={!text.trim()} onClick={review}>
           Review the batch
@@ -156,9 +170,9 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
             <p className="text-sm font-medium">Batch rules — asked once</p>
             <div className="mt-3 grid gap-3">
               <div>
-                <p className="text-xs text-muted">This batch is <strong>{soldBatch ? "already sold" : "for sale"}</strong>. Already sold lands in the archive and counts in your numbers; for sale lands on the floor. A line that says Sold itself always counts as sold — flipping this re-reads the whole note.</p>
+                <p className="text-xs text-muted">This batch is <strong>{soldBatch ? "already sold" : "on hand"}</strong>. Already sold lands in the archive and counts in your numbers; on hand lands on the floor. A line that says Sold itself always counts as sold — flipping this re-reads the whole note.</p>
                 <div className="mt-1 flex gap-2">
-                  {([[false, "For sale"], [true, "Already sold"]] as const).map(([value, label]) => (
+                  {([[false, "On hand"], [true, "Already sold"]] as const).map(([value, label]) => (
                     <button key={label} type="button" aria-pressed={soldBatch === value} className={chip(soldBatch === value)} onClick={() => reclassify(value)}>{label}</button>
                   ))}
                 </div>
