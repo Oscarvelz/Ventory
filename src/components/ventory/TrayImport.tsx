@@ -194,7 +194,7 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
             <button key={label} type="button" aria-pressed={soldBatch === value} className={chip(soldBatch === value)} onClick={() => reclassify(value)}>{label}</button>
           ))}
         </div>
-        <p className="mt-2 text-xs text-muted">On hand lands on the floor. Already sold lands in the archive and counts in your numbers. A line that says Sold itself always counts as sold either way.</p>
+        <p className="mt-2 text-xs text-muted">On hand lands on the floor. Already sold lands in the archive and counts in your numbers. A line with a sold date (SoldJun3) always counts as sold — a bare "- Sold" with no date follows this answer.</p>
       </div>
       <div className="mt-3 flex gap-2">
         <button type="button" className="press h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-ink" disabled={!text.trim()} onClick={review}>

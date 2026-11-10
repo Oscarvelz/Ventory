@@ -332,7 +332,13 @@ export function defaultDecisions(batch: TrayBatch): TrayDecisions {
   const groups: Record<string, string> = {};
   for (const group of batch.groups) groups[group.id] = group.defaultOption;
   const clusters: Record<string, "same" | "different"> = {};
-  for (const cluster of batch.clusters) clusters[cluster.id] = "same";
+  // The pre-answer follows how his notebook actually works (1.4.0). A cluster that reaches a
+  // piece ALREADY on the floor is the same piece written twice — complete its record. But a
+  // line repeated inside ONE list is another pair: he counts pairs by lines and numbers
+  // identical pairs separately in his own ledgers, so the default lands each line as its own
+  // piece. The card asks either way; only the pre-answer changed. The old blanket "same"
+  // silently merged 7 of his 46 on-hand lines into their twins.
+  for (const cluster of batch.clusters) clusters[cluster.id] = cluster.crossSource ? "same" : "different";
   const include: Record<number, boolean> = {};
   for (const trayRow of batch.rows) include[trayRow.index] = trayRow.light !== "red";
   return { groups, clusters, include };

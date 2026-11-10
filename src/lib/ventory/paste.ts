@@ -4,7 +4,7 @@ const MONTHS: Record<string, number> = {
   jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
 };
 
-const MONTH = "Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Agu(?:st)?|Sep(?:t(?:ember)?)?|Set|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?";
+const MONTH = "Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Agu(?:st)?|Sep(?:t(?:ember)?)?|Set|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?|Dic(?:iembre)?";
 const DATE_RE = new RegExp(
   `(?:(Added|Sold|Solg|Buy\\s*Day)\\s*[:\\-]?\\s*)?(${MONTH})\\s*(\\d{1,2})(?:st|nd|rd|th)?(?:\\s*[/,-]\\s*(\\d{2,4}))?`,
   "gi",
@@ -36,6 +36,7 @@ function monthIndex(name: string) {
   const lower = name.toLowerCase();
   if (lower.startsWith("sept") || lower === "set") return 9;
   if (lower.startsWith("agu")) return 8;
+  if (lower.startsWith("dic")) return 12; // his Spanish December: SoldDic18 is a dated sale
   return MONTHS[lower.slice(0, 3)] ?? 0;
 }
 
@@ -101,14 +102,24 @@ const FAILED_SALE_RE = /\bno los quiso\b|\bno quiso\b|\bdid ?n[o']?t want\b|\bre
 const KEPT_RE = /\badded this to my wallet\b|\bto my wallet\b|\bfor myself\b|\bi'?m keeping\b|\bkeeping (?:it|this|them) for me\b|\bme lo quedo\b/i;
 
 function stripIndex(line: string) {
-  let next = line.replace(/^[+#.\s]+/, "").replace(/^\d+(?:st|nd|rd|th)\.?\s+/i, "");
+  // The bullet and the index come off first, in whichever order he wrote them ("_ 1. 45 = …",
+  // "+ _ 45 = …"): the loop below only sees digits once the "_" is gone.
+  let next = line.replace(/^[+#._\s]+/, "").replace(/^\d+(?:st|nd|rd|th)\.?\s+/i, "");
   for (;;) {
     const mark = next.match(/^(\d+)\s*([.)])\s*/);
     if (!mark) break;
     const rest = next.slice(mark[0].length);
     const fraction = rest.match(/^(\d+)/);
     const decimal = mark[2] === "." && !!fraction && fraction[1].length === 1 && Number(fraction[1]) <= 5 && Number(mark[1]) < 16;
-    if (decimal || (mark[2] === "." && !fraction)) break;
+    if (decimal) break;
+    // "44. = 9.5" is a size pair wearing a stray dot (CN 44 = US 9.5), never an index: the
+    // number sits in CN/EU range and the "=" follows it directly. A watch enumeration like
+    // "10. = ($19.4)" stays an index — its number is below size range.
+    if (!fraction && rest.startsWith("=") && Number(mark[1]) >= 30) break;
+    // "5. Dressy open-heart watch", "10. = ($19.4)": an index followed by a word, an "=" or a
+    // mark is an index, not a size — strip it. A size keeps the line when money or a paren
+    // follows ("9. ($20)…", "9. $25…"), which is what the old blanket break protected.
+    if (!fraction && !/^[A-Za-z=*]/.test(rest)) break;
     next = rest;
   }
   return next.replace(/^[_\s]+/, "").trim();
@@ -244,8 +255,10 @@ function takeRebate(line: string) {
     rebate += centsOf(match[2]);
     next = next.replace(match[0], " ");
   }
-  // 4) "$N off in credit to claim…" — a supplier credit, still to claim.
-  match = next.match(new RegExp(`${AMT}\\s*off\\s+in\\s+credit[^,.]*`, "i"));
+  // 4) "$N off in credit to claim…" — a supplier credit, still to claim. The tail is matched
+  // narrowly ("to claim in 1 week"): the old [^,.]* ate everything up to the next comma —
+  // including the "for $35" the piece actually sold for, and the sale vanished.
+  match = next.match(new RegExp(`${AMT}\\s*off\\s+in\\s+credit(?:\\s+to\\s+claim(?:\\s+in\\s+\\d+\\s+weeks?)?)?`, "i"));
   if (match) {
     rebate += centsOf(match[1]);
     notes.push("Credit to claim");
@@ -431,7 +444,7 @@ function takeSize(line: string) {
     label = cnWord[1];
     if (cnWord[2]) us = tidyUs(cnWord[2]);
   } else {
-    const cnEq = clean.match(new RegExp(`(?:^|[^\\d])(\\d{2})\\s*=\\s*(?:BOX\\s*[0-9.]+|${usBit})?`, "i"));
+    const cnEq = clean.match(new RegExp(`(?:^|[^\\d])(\\d{2})\\s*\\.?\\s*=\\s*(?:BOX\\s*[0-9.]+|${usBit})?`, "i"));
     if (cnEq && Number(cnEq[1]) >= 30) {
       system = "CN";
       bare = true;
@@ -559,7 +572,7 @@ function clientOf(line: string) {
 function noteBits(line: string) {
   const bits: string[] = [];
   const plain = stripMarks(line);
-  if (/\bgifts?\b|\bregalos?\b|\bpresent\b|\bbirthday\b|\bgave it to me\b/i.test(plain)) bits.push("Gift");
+  if (/\bgif{1,2}ts?\b|\bregalos?\b|\bpresent\b|\bbirthday\b|\bgave it to me\b/i.test(plain)) bits.push("Gift");
   if (/\breturned\b/i.test(plain)) bits.push("Returned");
   if (/likely to return/i.test(plain)) bits.push("Likely return");
   if (/full refund/i.test(plain)) bits.push("Full refund");
@@ -693,7 +706,6 @@ export function parseDetailedNotes(text: string, today = new Date(), soldBatch =
       issues.push("true-cost");
     }
     const sale = takeSale(costLine);
-    const saidSold = dates.saidSold || sale.arrowSold;
     const sized = sale.line
       .replace(/\b(?:sold\s+)?for\s+\$\s*[0-9.\s]+/gi, " ")
       .replace(/\+\s*\$\s*[0-9.]+\s*delivery/gi, " ")
@@ -710,13 +722,22 @@ export function parseDetailedNotes(text: string, today = new Date(), soldBatch =
     const failed = FAILED_SALE_RE.test(work);
     const keptLine = KEPT_RE.test(work);
     const giftOut = /\bpresent\b/i.test(work) || (/\bgifts?\b/i.test(work) && !!person) || (/\bmine\b/i.test(work) && !!person && /\bto\s+\p{Lu}/u.test(work));
+    // An explicit gift marker (his spelling wobbles: GIFT, GIFTS, GIFFTS) with no recipient named.
+    const giftMarked = /\bgif{1,2}ts?\b|\bregalos?\b/i.test(work);
     const usedLine = /\bused\b/i.test(work);
+    // WHAT PROVES A SALE (1.3.1, Oscar's correction — the On hand option was lying): in his
+    // ledgers nearly every line ends in a bare "- Sold" — it is the template slot he writes
+    // when a piece arrives, NOT a report that it left. A bare "sold" word therefore proves
+    // nothing on its own: it follows the batch's answer. Hard evidence is a sold DATE the
+    // reader could actually read (SoldJun3, Sold on Aug27) or an arrow price (for $A → $B);
+    // that evidence outranks the batch in both directions.
+    const soldEvidence = !!soldOn || sale.arrowSold;
     let kind: RowKind;
     if (returned) kind = "returned";
     else if (failed) kind = "failed-sale";
     else if (keptLine) kind = "kept";
-    else if (!saidSold && !soldBatch && giftOut) kind = "gift";
-    else if (saidSold || soldBatch) kind = "sale";
+    else if (!soldEvidence && !soldBatch && (giftOut || giftMarked)) kind = "gift";
+    else if (soldEvidence || soldBatch) kind = "sale";
     else if (usedLine) kind = "used";
     else kind = "stock";
     if (kind === "sale" && coming) issues.push("coming-sold");

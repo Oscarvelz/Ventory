@@ -215,10 +215,16 @@ test("profitOf: one definition — rebate lowers cost, delivery is collected but
   assert.equal(model.effectiveCostCents({ costCents: 100, buyRebateCents: 250 }), 0);
 });
 
-test("a batch of already-sold pieces: the batch's answer lands every unmarked line as a sale in the archive", () => {
+test("a bare '- Sold' follows the batch's answer: on hand it lands on the floor, already sold it lands in the archive", () => {
+  // The notebook writes "- Sold" at the end of nearly every line — it is the slot where a
+  // sold date will go, not a report that the piece left. Only a sold DATE is proof (next test).
   const doc = "Classic Leather Riding Boots\n_ 43 = 9 ($22) *Home* for $55 — AddedSep03 - Sold\n_ 41 = 8 ($21) *Home* for $55 — AddedSep04";
   const forSale = parseDetailedNotes(doc, today, false).rows;
-  assert.equal(forSale[0].kind, "sale");
+  assert.equal(forSale[0].kind, "stock");
+  assert.equal(forSale[0].input.status, "available");
+  assert.equal(forSale[0].input.saleCents, null);
+  assert.equal(forSale[0].input.soldOn, null);
+  assert.equal(forSale[0].input.askCents, 5500); // on an unsold line "for $55" is the ask
   assert.equal(forSale[1].kind, "stock");
   assert.equal(forSale[1].input.status, "available");
   const sold = parseDetailedNotes(doc, today, true).rows;
@@ -235,12 +241,79 @@ test("a batch of already-sold pieces: the batch's answer lands every unmarked li
   assert.equal(batch.totals.revenue, 11000);
 });
 
+test("a sold DATE is proof in any batch: it outranks the On hand answer", () => {
+  const doc = "Classic Leather Riding Boots\n_ 43 = 9 ($22) *Home* for $55 — AddedSep03 - SoldSep10\n_ 42 = 8.5 ($20) *Home* for $55 — AddedSep04 - Sold";
+  const rows = parseDetailedNotes(doc, today, false).rows;
+  assert.equal(rows[0].kind, "sale");
+  assert.equal(rows[0].input.status, "sold");
+  assert.equal(rows[0].input.soldOn, "2026-09-10");
+  assert.equal(rows[0].input.saleCents, 5500);
+  assert.equal(rows[1].kind, "stock"); // the bare word alone proves nothing
+  const phrased = parseDetailedNotes("Work Boots\n_ 41 = 8 ($18) *Home* for $40 — AddedJan05 - Sold on Aug27", today, false).rows;
+  assert.equal(phrased[0].kind, "sale");
+  assert.equal(phrased[0].input.soldOn, "2026-08-27");
+  const spanish = parseDetailedNotes("# Dress Watches\n_ = ($19) *Home* for $40 — AddedDec10 - SoldDic18", today, false).rows;
+  assert.equal(spanish[0].kind, "sale");
+  assert.equal(spanish[0].input.soldOn, "2025-12-18"); // his Dic is December
+});
+
+test("a bare '- Sold' on a Coming line in an on-hand batch is plain incoming — no false alarm", () => {
+  const doc = "Trail Boots\n_ 44 = 9.5 ($26) *Coming* for — AddedAug09 - Sold";
+  const rows = parseDetailedNotes(doc, today, false).rows;
+  assert.equal(rows[0].kind, "stock");
+  assert.equal(rows[0].input.status, "incoming");
+  assert.equal(rows[0].issues.includes("coming-sold"), false);
+  const dated = parseDetailedNotes("Trail Boots\n_ 44 = 9.5 ($26) *Coming* for $40 — AddedAug09 - SoldSep02", today, true).rows;
+  assert.equal(dated[0].kind, "sale");
+  assert.equal(dated[0].issues.includes("coming-sold"), true);
+});
+
+test("an explicit gift marker with no recipient named is a gift, not a sale, in an on-hand batch", () => {
+  const doc = "Classic Leather Riding Boots\n_ 43 = 9 ($28) *Home* for — AddedJun29 - Sold GIFT\n_ 42 = 8.5 ($24) *Home* for — AddedJun30 - Sold GIFFTS";
+  const rows = parseDetailedNotes(doc, today, false).rows;
+  assert.equal(rows[0].kind, "gift");
+  assert.equal(rows[0].input.status, "archived");
+  assert.equal(rows[0].input.saleCents, null);
+  assert.equal(rows[1].kind, "gift"); // his wobbling spelling still reads as a gift
+});
+
+test("a watch line with no size at all follows the batch like any other line", () => {
+  const doc = "# Silver Dress Watches\n_ = ($20) *Home* for — AddedJan05 - Sold";
+  const onHand = parseDetailedNotes(doc, today, false).rows;
+  assert.equal(onHand[0].kind, "stock");
+  assert.equal(onHand[0].input.status, "available");
+  const sold = parseDetailedNotes(doc, today, true).rows;
+  assert.equal(sold[0].kind, "sale");
+  assert.equal(sold[0].input.status, "archived");
+});
+
+test("an index written before a word is an index; a CN size wearing a dot is a size", () => {
+  const doc = "# Silver Dress Watches\n+ 2. Dressy open-heart watch for $40 Dec6\n# Plain Boots\n_ 44. = 9.5 ($25) *Home* for — AddedApr02 - Sold";
+  const rows = parseDetailedNotes(doc, today, true).rows;
+  assert.equal(rows[0].input.name, "Dressy open-heart watch");
+  assert.equal(rows[1].input.sizeSystem, "CN");
+  assert.equal(rows[1].input.sizeLabel, "44");
+  assert.equal(rows[1].input.usSize, "9.5");
+});
+
 test("a bare size number keeps CN by default and takes the batch's word when the batch says EU", () => {
   const parsed = parseDetailedNotes("# Test Boots\n_ 44 = 9.5 ($20) *Home* for $40 — AddedAug28", today, false);
   assert.equal(parsed.rows[0].sizeBare, true);
   assert.equal(parsed.rows[0].input.sizeSystem, "CN");
   const batch = tray.buildTray(parsed, [], { ...tray.defaultRules(), bareSize: "EU" });
   assert.equal(batch.rows[0].input.sizeSystem, "EU");
+});
+
+
+test("cluster pre-answers: a repeated line inside one list is another pair; a match on the floor completes the record", () => {
+  const doc = "# Test Boots\n_ 44 = 9.5 ($19) *Home* for $40 — AddedAug28 - Sold\n_ 44 = 9.5 ($19) *Home* for $40 — AddedAug28 - Sold";
+  const parsed = parseDetailedNotes(doc, today, true);
+  const batch = tray.buildTray(parsed, [], tray.defaultRules());
+  assert.equal(batch.clusters.length, 1);
+  assert.equal(batch.clusters[0].crossSource, false);
+  const applied = tray.applyTray(batch, tray.defaultDecisions(batch), []);
+  assert.equal(applied.add.length, 2); // each numbered line is a pair of its own
+  assert.equal(applied.update.length, 0);
 });
 
 console.log(`\n${passed} tests passed`);
