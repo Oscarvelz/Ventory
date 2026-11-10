@@ -746,10 +746,10 @@ export function House() {
           />
           <div className="mt-3 grid grid-cols-2 gap-2">
             {([
-              ["hand", "On hand", String(stats.available), stats.available ? `${money(sitting("available"))} ready` : "Nothing ready", Package, "#5f8f72"],
-              ["incoming", "Incoming", String(stats.incoming), stats.incoming ? `${money(sitting("incoming"))} on the way` : "Nothing coming", Truck, "#5d86ad"],
-              ["revenue", "Revenue", money(stats.revenue), month ? `${month.label} · ${money(month.revenue)}` : "No dated sales", CircleDollarSign, "#b08a3e"],
-              ["profit", "Profit", money(stats.profit), picture.margin == null ? "No margin yet" : `${picture.margin}% after cost`, TrendingUp, "#8d6aad"],
+              ["hand", "On hand", String(stats.available), stats.available ? `${money(sitting("available"))} ready` : "Nothing on the floor yet", Package, "#5f8f72"],
+              ["incoming", "Incoming", String(stats.incoming), stats.incoming ? `${money(sitting("incoming"))} on the way` : "Nothing on the road yet", Truck, "#5d86ad"],
+              ["revenue", "Revenue", money(stats.revenue), month ? `${month.label} · ${money(month.revenue)}` : "Nothing on the books yet", CircleDollarSign, "#b08a3e"],
+              ["profit", "Profit", money(stats.profit), picture.margin == null ? "No profit yet" : `${picture.margin}% after cost`, TrendingUp, "#8d6aad"],
             ] as const).map(([id, label, value, hint, icon, tone]) => (
               <Summary
                 key={id}
