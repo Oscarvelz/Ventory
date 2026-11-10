@@ -179,6 +179,22 @@
   }
 }
 
+/* The fold rows' finish (1.5.0, the skin wave under Oscar's third order — his
+   eye is the judge). The category rows and their subcategory headers were the
+   floor's last flat surface: plain panel under the jewel tiles. They now wear
+   the house material in its quietest register — a whisper of the theme's own
+   accent pooling in from the left where the name sits (the History cards pool
+   their light the same way), the tiles' own inset top highlight, and a soft
+   floor shadow. No new hue: --v-accent is each theme's own (sage at night,
+   deep green by day, cyan under Tron), so every theme — Tron included, beams
+   and all — keeps its register. Same box, same contents; only the finish. */
+.fold-row {
+  background-image: linear-gradient(100deg, color-mix(in srgb, var(--v-accent) 9%, transparent) 0%, transparent 58%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 10px 22px -18px rgba(0, 0, 0, 0.35);
+}
+
 /* Picture frame. Ink is dark by day and light by night, so the edge stays visible on every theme. */
 .framed {
   border: 1px solid color-mix(in srgb, var(--v-ink) 22%, var(--v-line));
@@ -277,6 +293,17 @@
   .row-in {
     animation: row-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
+  /* The bloom (1.5.0, Oscar's word for tonight's skin work: subtle animations
+     that make the app bloom — beautiful and moderate, nothing exaggerated).
+     A view's one arrival: it fades and rises six pixels as it first settles.
+     From-only, no fill — the end state is the element's own, so the panels'
+     keep-mounted show/hide classes (.surface opacity/translate) stay fully in
+     charge afterwards, and tab switches keep their own cross-fade. Opacity and
+     transform only, per the 1.0.4 doctrine; dead under reduced motion because
+     it lives inside this block. */
+  .bloom {
+    animation: bloom-in 380ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
 }
 
 @keyframes sheet-in {
@@ -290,6 +317,9 @@
 @keyframes piece-in {
   from { opacity: 0; transform: translateY(8px); filter: blur(3px); }
   to { opacity: 1; transform: none; filter: blur(0); }
+}
+@keyframes bloom-in {
+  from { opacity: 0; transform: translateY(6px); }
 }
 /* From-only keyframes (Faro's pattern): the end state is each element's own
    settled geometry, so the last frame is pixel-for-value the static one. */

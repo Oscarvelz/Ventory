@@ -743,12 +743,12 @@ export function House() {
       </header>
 
       <div className="relative mt-5">
-        <section className={panel("floor")}>
+        <section className={`${panel("floor")} bloom`}>
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search pieces"
-            className="surface h-12 w-full rounded-2xl border border-line bg-panel px-4 text-sm outline-none focus:border-accent"
+            className="surface fold-row h-12 w-full rounded-2xl border border-line bg-panel px-4 text-sm outline-none focus:border-accent"
           />
           <div className="mt-3 grid grid-cols-2 gap-2">
             {([
@@ -810,11 +810,11 @@ export function House() {
                   <button
                     type="button"
                     aria-expanded={open}
-                    className="press flex w-full items-center gap-3 rounded-2xl border border-line bg-panel px-4 py-3 text-left"
+                    className="press fold-row flex w-full items-center gap-3 rounded-2xl border border-line bg-panel px-4 py-3 text-left"
                     onClick={() => setOpenCats((current) => (current.includes(group.category) ? current.filter((item) => item !== group.category) : [...current, group.category]))}
                   >
                     <span className="min-w-0 flex-1 truncate font-medium">{group.category}</span>
-                    <span className="text-sm tabular-nums text-muted">{group.count}</span>
+                    <span className="rounded-full border border-line bg-panel-2 px-2 py-0.5 text-xs tabular-nums text-muted">{group.count}</span>
                     <ChevronDown className={`size-4 text-muted transition-transform ${open ? "rotate-180" : ""}`} strokeWidth={1.75} />
                   </button>
                   {open ? (
@@ -824,7 +824,7 @@ export function House() {
                         return (
                         <div key={sub.name || "plain"} className={wideGrid ? "lg:contents" : undefined}>
                           {sub.name ? (
-                            <div className={`flex items-center gap-3 rounded-2xl border border-line bg-panel p-2 pr-4${wideGrid ? " lg:self-start" : ""}`}>
+                            <div className={`fold-row flex items-center gap-3 rounded-2xl border border-line bg-panel p-2 pr-4${wideGrid ? " lg:self-start" : ""}`}>
                               <label className="press relative grid size-16 shrink-0 cursor-pointer place-items-center overflow-hidden rounded-xl bg-canvas text-muted">
                                 {photo ? <img src={photo} alt="" className="size-full object-cover" /> : <ImagePlus className="size-5" strokeWidth={1.75} />}
                                 <input
@@ -875,12 +875,12 @@ export function House() {
           )}
         </section>
 
-        <section className={panel("history")}>
+        <section className={`${panel("history")} bloom`}>
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search pieces"
-            className="surface h-12 w-full rounded-2xl border border-line bg-panel px-4 text-sm outline-none focus:border-accent"
+            className="surface fold-row h-12 w-full rounded-2xl border border-line bg-panel px-4 text-sm outline-none focus:border-accent"
           />
           <div className="mt-3 grid grid-cols-2 gap-2">
             <HistoryChip
@@ -934,7 +934,7 @@ export function House() {
           </div>
         </section>
 
-        <section className={panel("ledger")}>
+        <section className={`${panel("ledger")} bloom`}>
           {/* Tablet landscape (1.1.4): the desk switch steps aside and both desks stand side by side,
               chart and advice in two columns. Below lg the switch and the single desk are untouched. */}
           <div className="grid grid-cols-2 gap-2 lg:hidden">
