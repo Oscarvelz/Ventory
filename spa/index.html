@@ -46,6 +46,11 @@
         .vsp-beam { display: none !important; }
         #ventory-splash.is-leaving { transform: none; }
       }
+      /* An update reload is not a launch (1.2.3): the wordmark stands assembled, no beams,
+         and the splash lifts the moment the shell is ready — it never performs twice. */
+      #ventory-splash.quick *, #ventory-splash.quick *::after { animation: none !important; }
+      #ventory-splash.quick .vsp-mark, #ventory-splash.quick .vsp-word > span { opacity: 1; transform: none; filter: none; }
+      #ventory-splash.quick .vsp-beam { display: none !important; }
     </style>
   </head>
   <body>
@@ -62,7 +67,18 @@
     <script>
       (function () {
         var reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
-        var MIN = reduce ? 700 : 2350, MAX = 5000, t0 = Date.now(), gone = false;
+        // main.tsx stamps sessionStorage right before an update reload; that reload continues
+        // the same opening, so the splash must not perform again. Peek only — lock.ts consumes.
+        var quick = false;
+        try {
+          var stamped = Number(sessionStorage.getItem("ventory.updateReload") || 0);
+          quick = stamped > 0 && Date.now() - stamped < 120000;
+        } catch (e) { /* no storage, full ceremony */ }
+        if (quick) {
+          var splashEl = document.getElementById("ventory-splash");
+          if (splashEl) splashEl.classList.add("quick");
+        }
+        var MIN = quick ? 0 : reduce ? 700 : 2350, MAX = 5000, t0 = Date.now(), gone = false;
         function hide() {
           if (gone) return; gone = true;
           var s = document.getElementById("ventory-splash");
