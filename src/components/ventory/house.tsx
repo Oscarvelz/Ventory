@@ -1668,6 +1668,12 @@ function Summary({
   // Faro's Central logic (its .lenses): with nothing picked, every chip wears
   // its colour at full beauty; picking one keeps it lit (deeper wash + ring)
   // and the rest humble themselves — opacity .62, saturate(.7).
+  // Presentation polish (1.2.4, Oscar's word: colour, polished): the flat wash
+  // became a gradient that pools its light at the top and settles into the
+  // panel at the value; the border softens to an aura of the tone instead of a
+  // hard outline; the icon disc is a small jewel — gradient, top highlight and
+  // a coloured glow — and the label wears its tile's colour lifted toward ink.
+  // Same box, same lens behaviour; only the material changed.
   const tone = litTone(rawTone);
   return (
     <RippleButton
@@ -1676,18 +1682,27 @@ function Summary({
       onClick={onClick}
       className="press sum-chip flex min-h-32 flex-col rounded-3xl border px-4 py-3.5 text-left"
       style={{
-        background: `color-mix(in srgb, ${tone} ${pressed ? 28 : 16}%, var(--v-panel))`,
-        borderColor: tone,
-        boxShadow: pressed ? `inset 0 0 0 1.5px ${tone}` : undefined,
+        background: `linear-gradient(155deg, color-mix(in srgb, ${tone} ${pressed ? 40 : 30}%, var(--v-panel)) 0%, color-mix(in srgb, ${tone} ${pressed ? 22 : 13}%, var(--v-panel)) 55%, var(--v-panel) 135%)`,
+        borderColor: pressed ? tone : `color-mix(in srgb, ${tone} 55%, transparent)`,
+        boxShadow: `${pressed ? `inset 0 0 0 1.5px ${tone}, ` : ""}inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 12px 24px -14px ${tone}`,
         opacity: dimmed ? 0.62 : undefined,
         filter: dimmed ? "saturate(.7)" : undefined,
       }}
     >
       <span className="flex items-center justify-between gap-2">
-        <span className="text-[11px] tracking-[0.16em] text-faint uppercase">{label}</span>
+        <span
+          className="text-[11px] font-semibold tracking-[0.16em] uppercase"
+          style={{ color: `color-mix(in srgb, ${tone} 72%, var(--v-ink))` }}
+        >
+          {label}
+        </span>
         <span
           className="grid size-7 place-items-center rounded-full"
-          style={{ background: tone, color: toneInk("#f6f3ec") }}
+          style={{
+            background: `linear-gradient(145deg, color-mix(in srgb, ${tone} 82%, #ffffff) 0%, ${tone} 55%, color-mix(in srgb, ${tone} 76%, #000000) 100%)`,
+            color: toneInk("#f6f3ec"),
+            boxShadow: `0 6px 14px -6px ${tone}, inset 0 1px 0 rgba(255, 255, 255, 0.35)`,
+          }}
         >
           <Icon className="size-3.5" strokeWidth={1.75} />
         </span>
