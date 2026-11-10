@@ -1622,6 +1622,10 @@ function HistoryChip({
   onClick: () => void;
 }) {
   const tone = litTone(rawTone);
+  // The Summary tiles' material (1.2.4) comes to History (1.2.5, Oscar's word):
+  // the light pools at the left where the disc sits, the border is an aura, the
+  // disc is the same small jewel and the label wears the card's colour. Same
+  // box, same press behaviour; only the material changed.
   return (
     <RippleButton
       ink={tone}
@@ -1629,16 +1633,29 @@ function HistoryChip({
       onClick={onClick}
       className="press flex items-center gap-3 rounded-2xl border px-3 py-3 text-left"
       style={{
-        background: `color-mix(in srgb, ${tone} ${pressed ? 24 : 14}%, var(--v-panel))`,
-        borderColor: pressed ? tone : `color-mix(in srgb, ${tone} 35%, var(--v-line))`,
+        background: `linear-gradient(100deg, color-mix(in srgb, ${tone} ${pressed ? 40 : 30}%, var(--v-panel)) 0%, color-mix(in srgb, ${tone} ${pressed ? 22 : 13}%, var(--v-panel)) 55%, var(--v-panel) 135%)`,
+        borderColor: pressed ? tone : `color-mix(in srgb, ${tone} 55%, transparent)`,
+        boxShadow: `${pressed ? `inset 0 0 0 1.5px ${tone}, ` : ""}inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 12px 24px -14px ${tone}`,
         color: "var(--v-ink)",
       }}
     >
-      <span className="grid size-9 shrink-0 place-items-center rounded-full text-[#f6f3ec]" style={{ background: tone, color: toneInk("#f6f3ec") }}>
+      <span
+        className="grid size-9 shrink-0 place-items-center rounded-full"
+        style={{
+          background: `linear-gradient(145deg, color-mix(in srgb, ${tone} 82%, #ffffff) 0%, ${tone} 55%, color-mix(in srgb, ${tone} 76%, #000000) 100%)`,
+          color: toneInk("#f6f3ec"),
+          boxShadow: `0 6px 14px -6px ${tone}, inset 0 1px 0 rgba(255, 255, 255, 0.35)`,
+        }}
+      >
         <Icon className="size-4" strokeWidth={1.75} />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-[11px] tracking-[0.14em] text-faint uppercase">{label}</span>
+        <span
+          className="block text-[11px] font-semibold tracking-[0.14em] uppercase"
+          style={{ color: `color-mix(in srgb, ${tone} 72%, var(--v-ink))` }}
+        >
+          {label}
+        </span>
         <span className="block truncate font-display text-2xl leading-none tabular-nums">{value}</span>
         <span className="mt-1 block truncate text-[11px] text-muted">{hint}</span>
       </span>
@@ -2241,15 +2258,28 @@ function AdsWidget({ ads, pieces, onChange }: { ads: Ad[]; pieces: Piece[]; onCh
         onClick={() => setOpen((value) => !value)}
         className="press flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left"
         style={{
-          background: `color-mix(in srgb, ${tone} ${open ? 24 : 14}%, var(--v-panel))`,
-          borderColor: open ? tone : `color-mix(in srgb, ${tone} 35%, var(--v-line))`,
+          background: `linear-gradient(100deg, color-mix(in srgb, ${tone} ${open ? 40 : 30}%, var(--v-panel)) 0%, color-mix(in srgb, ${tone} ${open ? 22 : 13}%, var(--v-panel)) 55%, var(--v-panel) 135%)`,
+          borderColor: open ? tone : `color-mix(in srgb, ${tone} 55%, transparent)`,
+          boxShadow: `${open ? `inset 0 0 0 1.5px ${tone}, ` : ""}inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 12px 24px -14px ${tone}`,
         }}
       >
-        <span className="grid size-9 shrink-0 place-items-center rounded-full text-[#f6f3ec]" style={{ background: tone, color: toneInk("#f6f3ec") }}>
+        <span
+          className="grid size-9 shrink-0 place-items-center rounded-full"
+          style={{
+            background: `linear-gradient(145deg, color-mix(in srgb, ${tone} 82%, #ffffff) 0%, ${tone} 55%, color-mix(in srgb, ${tone} 76%, #000000) 100%)`,
+            color: toneInk("#f6f3ec"),
+            boxShadow: `0 6px 14px -6px ${tone}, inset 0 1px 0 rgba(255, 255, 255, 0.35)`,
+          }}
+        >
           <Megaphone className="size-4" strokeWidth={1.75} />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-[11px] tracking-[0.14em] text-faint uppercase">Ads</span>
+          <span
+            className="block text-[11px] font-semibold tracking-[0.14em] uppercase"
+            style={{ color: `color-mix(in srgb, ${tone} 72%, var(--v-ink))` }}
+          >
+            Ads
+          </span>
           <span className="block truncate font-display text-2xl leading-none tabular-nums">{money(spent)}</span>
           <span className="mt-1 block truncate text-[11px] text-muted">{hint}</span>
         </span>
