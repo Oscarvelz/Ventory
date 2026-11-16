@@ -132,8 +132,14 @@ export async function saveMark({ data: raw }: { data: { category: string; subcat
 export async function saveAd({ data: raw }: { data: { id?: string; product: string; spentCents: number; startedOn: string | null; endedOn: string | null; worked: string } }) {
   const product = String(raw.product ?? "").trim().slice(0, 160);
   if (!product) return readAds();
-  const id = raw.id ? String(raw.id).slice(0, 80) : crypto.randomUUID();
-  await store.write([{ kind: "ad", id, data: { product, spentCents: Math.max(0, Math.round(Number(raw.spentCents) || 0)), startedOn: raw.startedOn || null, endedOn: raw.endedOn || null, worked: asWorked(raw.worked) } }]);
+  let id = raw.id ? String(raw.id).slice(0, 80) : crypto.randomUUID();
+  const data = { product, spentCents: Math.max(0, Math.round(Number(raw.spentCents) || 0)), startedOn: raw.startedOn || null, endedOn: raw.endedOn || null, worked: asWorked(raw.worked) };
+  if (isSampleId(id) && store.get("ad", id)) {
+    // 1.6.1 adoption: an edited sample ad becomes the owner's own ad.
+    id = await adoptSampleRecord("ad", id, data);
+    return readAds();
+  }
+  await store.write([{ kind: "ad", id, data }]);
   return readAds();
 }
 
@@ -150,13 +156,50 @@ async function upsert(input: PieceInput) {
   return id;
 }
 
+/* ---------- adoption (1.6.1) ----------
+   The moment a sample piece or ad is saved through a real flow — the editor,
+   a sale, a tile action — it stops being an example: it is rewritten under a
+   fresh id of its own and the sample id is retired. From then on the sample
+   machinery (Load / Update / Remove) physically cannot take it, so a real
+   sale recorded on an example piece survives "Remove sample floor" — before
+   1.6.1 it died with the examples and History lost the sale. */
+async function adoptSampleRecord(kind: "piece" | "ad", id: string, data: Record<string, unknown>): Promise<string> {
+  const fresh = crypto.randomUUID();
+  await store.write([
+    { kind, id: fresh, data },
+    { kind, id, deleted: true },
+  ]);
+  window.setTimeout(() => window.dispatchEvent(new Event("ventory-remote")), 0);
+  return fresh;
+}
+
 export async function savePiece({ data }: { data: PieceInput }) {
-  const id = await upsert(clean(data));
+  const cleaned = clean(data);
+  if (cleaned.id && isSampleId(cleaned.id)) {
+    const rec = store.get("piece", cleaned.id);
+    if (rec) {
+      const sort = Number(rec.data.sort) || 0;
+      const fresh = crypto.randomUUID();
+      await store.write([
+        { kind: "piece", id: fresh, data: pieceData(fresh, cleaned, sort) },
+        { kind: "piece", id: cleaned.id, deleted: true },
+      ]);
+      window.setTimeout(() => window.dispatchEvent(new Event("ventory-remote")), 0);
+      return readPieces().find((piece) => piece.id === fresh) ?? null;
+    }
+  }
+  const id = await upsert(cleaned);
   return readPieces().find((piece) => piece.id === id) ?? null;
 }
 
 export async function setStatus({ data }: { data: { id: string; status: Status; saleCents?: number | null; soldOn?: string | null; clientName?: string; channel?: string; buyRebateCents?: number } }) {
-  const cur = store.get("piece", data.id);
+  let cur = store.get("piece", data.id);
+  if (cur && isSampleId(data.id)) {
+    // 1.6.1 adoption: a status change (above all a sale) makes the piece the owner's.
+    const fresh = await adoptSampleRecord("piece", data.id, cur.data as Record<string, unknown>);
+    data = { ...data, id: fresh };
+    cur = store.get("piece", fresh);
+  }
   if (cur) {
     const p = toPiece(data.id, cur.data);
     const status = asStatus(data.status);
@@ -358,7 +401,12 @@ const LEGACY_SAMPLES = [
 
 export function isLegacySample(piece: Piece): boolean {
   if (isSampleId(piece.id)) return false;
-  if (piece.brand !== "" || piece.qty !== 1 || piece.saleCents != null || piece.buyRebateCents !== 0 || piece.deliveryCents !== 0 || piece.channel !== "" || piece.clientName !== "" || piece.wasSold || piece.problem !== "" || piece.notes !== "" || piece.photo !== "" || piece.soldOn != null) return false;
+  // 1.6.1: the fingerprint is the FULL field set. receivedOn, place and usSize are
+  // checked too — a real entry carries at least one of them (the editor defaults
+  // receivedOn to today, converts the US size, and the piece sits somewhere), and
+  // before 1.6.1 a real Chelsea boot matching the four old lines on every checked
+  // field was tombstoned as a "legacy sample" it never was.
+  if (piece.brand !== "" || piece.qty !== 1 || piece.saleCents != null || piece.buyRebateCents !== 0 || piece.deliveryCents !== 0 || piece.channel !== "" || piece.clientName !== "" || piece.wasSold || piece.problem !== "" || piece.notes !== "" || piece.photo !== "" || piece.soldOn != null || piece.receivedOn != null || piece.place !== "" || piece.usSize !== "") return false;
   return LEGACY_SAMPLES.some((s) =>
     piece.name === s.name && piece.category === s.category && piece.subcategory === s.subcategory &&
     piece.status === s.status && piece.sizeSystem === s.sizeSystem && piece.sizeLabel === s.sizeLabel &&
@@ -482,6 +530,22 @@ export function sampleSetSize() {
   return { pieces: s.pieces.length, ads: s.ads.length };
 }
 
+/* Update's guard (1.6.1): a built sample is (re)written only when the record
+   under its id is absent or still matches the build on every non-date field.
+   Dates are recomputed from "today" on every build, so they always differ and
+   prove nothing; anything else differing means the piece was touched — sold,
+   edited, adopted — and Update leaves it exactly as it is. Before 1.6.1 an
+   Update blindly re-wrote every sample id, resurrecting a pristine twin next
+   to a piece the owner had already sold. */
+function sameSampleData(recData: Record<string, unknown>, built: PieceInput): boolean {
+  const b = pieceData(built.id ?? "", built, 0);
+  for (const k of Object.keys(b)) {
+    if (k === "receivedOn" || k === "soldOn" || k === "sort") continue;
+    if (String(recData[k] ?? "") !== String(b[k] ?? "")) return false;
+  }
+  return true;
+}
+
 export async function addSamples() {
   /* Turning the sample floor on also retires the untagged first sample:
      those four pieces are replaced by the complete set, never duplicated
@@ -491,8 +555,17 @@ export async function addSamples() {
     await store.write(legacy.map((r) => ({ kind: "piece" as const, id: r.id, deleted: true })));
   }
   const { pieces, ads } = buildSamples();
-  for (const piece of pieces) await upsert(piece);
+  for (const piece of pieces) {
+    const raw = store.rawRecord("piece", piece.id!);
+    if (raw && !sameSampleData(raw.data as Record<string, unknown>, piece)) continue;
+    await upsert(piece);
+  }
   for (const ad of ads) {
+    const raw = store.rawRecord("ad", ad.id);
+    if (raw) {
+      const d = raw.data as Record<string, unknown>;
+      if (d.product !== ad.product || Number(d.spentCents) !== ad.spentCents || d.worked !== ad.worked) continue;
+    }
     await store.write([{ kind: "ad", id: ad.id, data: { product: ad.product, spentCents: ad.spentCents, startedOn: ad.startedOn, endedOn: ad.endedOn, worked: ad.worked } }]);
   }
   return { pieces: readPieces(), ads: readAds() };

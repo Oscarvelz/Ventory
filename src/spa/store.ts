@@ -99,6 +99,12 @@ export function get(kind: Kind, id: string): Rec | undefined {
   return r && !r.deleted ? r : undefined;
 }
 
+/** The record exactly as held, tombstones included — for callers that must
+    know a record existed (the sample floor's Update guard, 1.6.1). */
+export function rawRecord(kind: Kind, id: string): Rec | undefined {
+  return mem.get(key(kind, id));
+}
+
 /** Saves records on this device right away and queues them for the cloud. */
 export async function write(items: { kind: Kind; id: string; data?: Record<string, unknown>; deleted?: boolean }[]) {
   const recs: Rec[] = items.map((it) => ({ uid, kind: it.kind, id: it.id, data: it.deleted ? {} : (it.data ?? {}), updatedAt: stamp(), deleted: Boolean(it.deleted), dirty: true }));

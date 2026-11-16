@@ -578,7 +578,13 @@ export function House() {
       if (!saved) return;
       setPieces((current) => current.map((item) => (item.id === saved.id ? saved : item)));
       if (status === "sold") {
-        setUndo({ previous, name: previous.name, what: "Sold" });
+        // 1.6.1: selling a sample piece adopts it (new id) — Undo must restore the
+        // pre-sale fields onto the piece's CURRENT id, or it would resurrect the
+        // retired sample id beside the adopted copy.
+        const undoPiece: Piece = saved.id !== previous.id
+          ? { ...saved, status: previous.status, saleCents: previous.saleCents, soldOn: previous.soldOn, wasSold: previous.wasSold, channel: previous.channel }
+          : previous;
+        setUndo({ previous: undoPiece, name: previous.name, what: "Sold" });
         setUndoOpen(false);
       }
     });
