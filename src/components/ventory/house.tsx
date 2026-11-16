@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Archive, BadgeCheck, Car, Check, ChevronDown, CircleAlert, CircleDollarSign, ClipboardPaste, Clock, DatabaseBackup, FileDown, Footprints, Funnel, Glasses, House as HomeIcon, ImagePlus, LayoutGrid, List, Megaphone, Moon, Package, Palette, Pin, Plus, RectangleHorizontal, Rows2, ShieldCheck, Shirt, ShoppingBag, SlidersHorizontal, Sun, Trash2, TrendingUp, Truck, Watch } from "lucide-react";
 import { AccountCard, FingerprintControl, SignOutCard } from "@/lib/auth/gates";
 import { daysHeld, dollarsToCents, effectiveCostCents, emptyInput, money, priceCutCents, PROBLEMS, profitOf, STATUS_LABEL, STATUSES, todayISO, unitProfitCents, type Ad, type Piece, type PieceInput, type Status } from "@/lib/ventory/model";
@@ -27,6 +27,50 @@ type Desk = "stats" | "advisor";
 type Lens = "hand" | "incoming" | "revenue" | "profit";
 type Layout = "card" | "medium" | "list" | "g2" | "g3" | "g4";
 type Face = "large" | "medium" | "list" | "grid";
+
+/**
+ * Render windowing (1.10.0, Prejudice cure Wave 6): a long list mounts only its
+ * first chunk of cards; a sentinel near the end of the mounted band grows the
+ * window a chunk at a time as it approaches the viewport. The fold structure,
+ * the cascade and every theme are untouched — what changes is only HOW MANY
+ * cards exist in the tree at once. At 900 pieces the un-windowed floor mounted
+ * ~54k DOM nodes and a view switch cost ~3 s on the bench; the data was never
+ * the problem, the mounted tree was. The window resets when the list's own
+ * identity changes (search, filters, History tab) — never on a view switch,
+ * so moving between views re-mounts nothing.
+ */
+const WINDOW_CHUNK = 32;
+function useWindowed(resetKey: string, total: number) {
+  const [count, setCount] = useState(WINDOW_CHUNK);
+  useEffect(() => {
+    setCount(WINDOW_CHUNK);
+  }, [resetKey]);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  // Growth is SCROLL-GATED: the window widens only when the page has actually
+  // scrolled since the last growth. Without the gate, a short page (folds still
+  // closed) keeps the sentinel near the viewport and the observer cascades the
+  // window open on its own — the bench caught it at 280 mounted cards with
+  // nobody scrolling. Scrolling is the only honest signal that more is needed.
+  const lastScrollY = useRef<number | null>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || count >= total) return;
+    if (lastScrollY.current == null) lastScrollY.current = window.scrollY;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        const y = window.scrollY;
+        if (lastScrollY.current != null && Math.abs(y - lastScrollY.current) < 60) return;
+        lastScrollY.current = y;
+        setCount((current) => Math.min(total, current + WINDOW_CHUNK));
+      },
+      { rootMargin: "900px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [count, total]);
+  return { count, sentinelRef, hasMore: count < total };
+}
 
 function applyTheme(theme: ThemeId) {
   const root = document.documentElement;
@@ -429,6 +473,22 @@ export function House() {
       .sort((a, b) => (b.soldOn || b.receivedOn || "").localeCompare(a.soldOn || a.receivedOn || ""));
   }, [pieces, past, query, kind, product]);
 
+  // 1.10.0: the two windowed lists. The floor window counts cards in render
+  // order across the open folds; History is a flat slice.
+  const floorWindow = useWindowed(`floor|${query}|${kind}|${chip}|${lens ?? ""}`, visible.length);
+  const historyWindow = useWindowed(`history|${past}|${product}|${kind}|${query}|${layout}`, history.length);
+
+  // 1.10.0: stable card handlers (see PieceCard) — one identity for the whole
+  // session, so memoized cards never re-render on unrelated state changes.
+  // requestStatus/requestProblem read only their arguments and setState.
+  const openPieceCard = useCallback((piece: Piece) => {
+    setEditorFocus(null);
+    setEditor({ ...piece });
+  }, []);
+  const statusPieceCard = useCallback((piece: Piece, status: Status) => requestStatus(piece, status), []);
+  const deletePieceCard = useCallback((piece: Piece) => setConfirmId(piece.id), []);
+  const problemPieceCard = useCallback((piece: Piece, problem: string) => requestProblem(piece, problem), []);
+
   const kinds = useMemo(() => {
     const seen = new Map<string, string>();
     for (const piece of pieces) {
@@ -487,12 +547,14 @@ export function House() {
     };
   }, [pieces, stats.profit, stats.revenue]);
 
-  const month = periodsOf(pieces, "month").filter((row) => row.stamp > 0).at(-1) ?? null;
+  // 1.10.0: memoized — the floor panel's content is memoized as a whole, and a
+  // fresh object identity here every render would defeat it.
+  const month = useMemo(() => periodsOf(pieces, "month").filter((row) => row.stamp > 0).at(-1) ?? null, [pieces]);
   const datedMonths = periodsOf(pieces, "month").filter((row) => row.stamp > 0);
   const datedWeeks = periodsOf(pieces, "week").filter((row) => row.stamp > 0);
   const pricedQty = pieces.filter((piece) => isSale(piece) && piece.saleCents != null).reduce((sum, piece) => sum + piece.qty, 0);
   const givenAway = pieces.filter(isSale).reduce((sum, piece) => sum + priceCutCents(piece) * piece.qty, 0);
-  const sitting = (status: "available" | "incoming") => pieces.filter((piece) => piece.status === status).reduce((sum, piece) => sum + piece.costCents * piece.qty, 0);
+  const sitting = useCallback((status: "available" | "incoming") => pieces.filter((piece) => piece.status === status).reduce((sum, piece) => sum + piece.costCents * piece.qty, 0), [pieces]);
 
   useEffect(() => {
     setOpenStats(readStatList("ventory-stat-open"));
@@ -639,14 +701,15 @@ export function House() {
     void saveTheme({ data: next });
   }
 
-  function foldStat(id: string) {
+  // 1.10.0: stable identities so the memoized ledger panel is not defeated.
+  const foldStat = useCallback((id: string) => {
     if (pinnedStats.includes(id)) return;
     setOpenStats((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
-  }
-  function pinStat(id: string) {
+  }, [pinnedStats]);
+  const pinStat = useCallback((id: string) => {
     setPinnedStats((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
     setOpenStats((current) => (current.includes(id) ? current : [...current, id]));
-  }
+  }, []);
 
   const panel = (id: View) =>
     view === id
@@ -660,7 +723,7 @@ export function House() {
   const sampleComplete = samplePieces.length >= sampleSet.pieces && sampleAds.length >= sampleSet.ads && legacyPieces.length === 0;
   const sampleOn = samplePieces.length > 0 || sampleAds.length > 0 || legacyPieces.length > 0;
 
-  function loadSampleFloor() {
+  const loadSampleFloor = useCallback(() => {
     void addSamples()
       .then((next) => {
         setPieces(next.pieces);
@@ -670,7 +733,7 @@ export function House() {
         setNotice("Sample floor added — turn it off anytime in Settings, under Sample floor");
       })
       .catch((err: unknown) => setNotice(err instanceof Error ? err.message : "Could not load the sample floor"));
-  }
+  }, []);
 
   const wipeRows = [
     { id: "available", label: "Available", count: pieces.filter((piece) => piece.status === "available").length },
@@ -719,6 +782,316 @@ export function House() {
     pinned: Boolean(editor || settings || ask || undoOpen || wipeAsk || confirmId),
   });
 
+  // 1.10.0: the three panels' contents are memoized as elements. A view
+  // switch then changes only the sections' classes in the return below;
+  // when a panel's own inputs have not changed, React reuses the element
+  // and skips re-rendering that whole subtree. (The bench measured a
+  // same-view re-render of the full tree at ~3.2 s on a 900-piece floor;
+  // a switch now pays only the class flip.) Each deps list names every
+  // reactive value its JSX reads; state setters are stable and the card
+  // handlers are useCallback-stable, so they cannot go stale.
+  const floorContent = useMemo(() => {
+    let mounted = 0;
+    return (
+      <>
+      <input
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="Search pieces"
+        className="surface fold-row h-12 w-full rounded-2xl border border-line bg-panel px-4 text-sm outline-none focus:border-accent"
+      />
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        {([
+          ["hand", "On hand", String(stats.available), stats.available ? `${money(sitting("available"))} ready` : "Nothing on the floor yet", Package, "#5f8f72"],
+          ["incoming", "Incoming", String(stats.incoming), stats.incoming ? `${money(sitting("incoming"))} on the way` : "Nothing on the road yet", Truck, "#5d86ad"],
+          ["revenue", "Revenue", money(stats.revenue), month ? `${month.label} · ${money(month.revenue)}` : "Nothing on the books yet", CircleDollarSign, "#b08a3e"],
+          ["profit", "Profit", money(stats.profit), picture.margin == null ? "No profit yet" : `${picture.margin}% after cost`, TrendingUp, "#8d6aad"],
+        ] as const).map(([id, label, value, hint, icon, tone]) => (
+          <Summary
+            key={id}
+            label={label}
+            value={value}
+            hint={hint}
+            icon={icon}
+            tone={tone}
+            pressed={lens === id}
+            dimmed={lens !== null && lens !== id}
+            onClick={() => {
+              setLens((current) => (current === id ? null : id));
+              setView("floor");
+            }}
+          />
+        ))}
+      </div>
+      <ViewBar face={face} cols={cols} onFace={setFace} onCols={setCols} kinds={kinds} kind={kind} open={filterOpen} onToggle={() => setFilterOpen((open) => !open)} onKind={(id) => { setKind(id); setFilterOpen(false); }} />
+      {lens === "revenue" || lens === "profit" ? (
+        <div className="mt-4 space-y-3">
+          <Performance pieces={pieces} focus={lens} />
+          <LatestSales pieces={pieces} onOpen={(piece) => { setEditorFocus(null); setEditor({ ...piece }); }} />
+        </div>
+      ) : (
+        <>
+      {notice ? <p className="mt-3 text-sm text-accent">{notice}</p> : null}
+      {phase === "loading" ? <p className="mt-8 text-muted">Opening the floor</p> : null}
+      {phase === "error" ? (
+        <div className="mt-6 rounded-3xl border border-line bg-panel p-6">
+          <p className="font-display text-2xl">The floor did not open</p>
+          <p className="mt-2 text-sm text-muted">{error}</p>
+        </div>
+      ) : null}
+      {phase === "ready" && visible.length === 0 ? (
+        pieces.length > 0 && (query.trim().length > 0 || kind !== "all" || chip !== "live" || lens !== null) ? (
+          // 1.8.0: a filtered-empty view says so — before, a search that matched
+          // nothing declared "Nothing on this shelf" and offered to load the
+          // sample floor onto a floor that was not empty at all (G-5).
+          <div className="mt-6 rounded-3xl border border-line bg-panel px-6 py-8">
+            <p className="font-display text-3xl">{query.trim() ? `No pieces match “${query.trim()}”` : "No pieces match these filters"}</p>
+            <p className="mt-2 max-w-sm text-sm text-muted">The floor is not empty — this view is hiding everything on it.</p>
+          </div>
+        ) : (
+          <div className="mt-6 rounded-3xl border border-line bg-panel px-6 py-8">
+            <p className="font-display text-3xl">Nothing on this shelf</p>
+            <p className="mt-2 max-w-sm text-sm text-muted">Incoming and available stay here. Sold and archive live in History.</p>
+            <button
+              type="button"
+              className="press mt-5 h-11 rounded-full border border-line px-4 text-sm"
+              onClick={loadSampleFloor}
+            >
+              Load a sample floor
+            </button>
+          </div>
+        )
+      ) : null}
+      <div className="mt-4 space-y-3">
+        {groups.map((group) => {
+          const open = query.trim().length > 0 || openCats.includes(group.category);
+          return (
+            <section key={group.category}>
+              <button
+                type="button"
+                aria-expanded={open}
+                className="press fold-row flex w-full items-center gap-3 rounded-2xl border border-line bg-panel px-4 py-3 text-left"
+                onClick={() => setOpenCats((current) => (current.includes(group.category) ? current.filter((item) => item !== group.category) : [...current, group.category]))}
+              >
+                <span className="min-w-0 flex-1 truncate font-medium">{group.category}</span>
+                <span className="rounded-full border border-line bg-panel-2 px-2 py-0.5 text-xs tabular-nums text-muted">{group.count}</span>
+                <ChevronDown className={`size-4 text-muted transition-transform ${open ? "rotate-180" : ""}`} strokeWidth={1.75} />
+              </button>
+              {open ? (
+                <div className={wideGrid ? `mt-3 space-y-4 lg:grid ${wideCols} ${layout === "g4" ? "lg:gap-1.5" : "lg:gap-2"} lg:space-y-0` : "mt-3 space-y-4"}>
+                  {group.subs.map((sub) => {
+                    // 1.10.0: a sub whose pieces all sit past the window does
+                    // not mount at all — header included. On the 900-piece bench
+                    // the ~510 sub headers alone were ~6,300 DOM nodes; the
+                    // band now carries only what it shows.
+                    const take = Math.max(0, Math.min(sub.items.length, floorWindow.count - mounted));
+                    if (take === 0) return null;
+                    mounted += take;
+                    const photo = marks.find((mark) => mark.category.toLowerCase() === group.category.toLowerCase() && mark.subcategory.toLowerCase() === sub.name.toLowerCase())?.photo ?? "";
+                    return (
+                    <div key={sub.name || "plain"} className={wideGrid ? "lg:contents" : undefined}>
+                      {sub.name ? (
+                        <div className={`fold-row flex items-center gap-3 rounded-2xl border border-line bg-panel p-2 pr-4${wideGrid ? " lg:self-start" : ""}`}>
+                          <label className="press relative grid size-16 shrink-0 cursor-pointer place-items-center overflow-hidden rounded-xl bg-canvas text-muted">
+                            {photo ? <img src={photo} alt="" className="size-full object-cover" /> : <ImagePlus className="size-5" strokeWidth={1.75} />}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="sr-only"
+                              onChange={(event) => {
+                                const file = event.target.files?.[0];
+                                event.target.value = "";
+                                if (!file) return;
+                                void compressPhoto(file).then((next) => {
+                                  if (!next) return;
+                                  void saveMark({ data: { category: group.category, subcategory: sub.name, photo: next } }).then(setMarks);
+                                });
+                              }}
+                            />
+                          </label>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-medium">{sub.name}</span>
+                            <span className="block text-xs text-muted">{photo ? `${sub.items.length} inside` : "Add a photo"}</span>
+                          </span>
+                        </div>
+                      ) : null}
+                      <ul className={`${nestClass} ${sub.name ? "mt-2" : ""}${wideGrid ? " lg:contents" : ""}`}>
+                        {sub.items.slice(0, take).map((piece) => {
+                          return (
+                            <PieceCard
+                              key={piece.id}
+                              piece={piece}
+                              layout={layout}
+                              iconic
+                              onOpen={openPieceCard}
+                              onStatus={statusPieceCard}
+                              onDelete={deletePieceCard}
+                              onProblem={problemPieceCard}
+                            />
+                          );
+                        })}
+                      </ul>
+                    </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </section>
+          );
+        })}
+      </div>
+      {floorWindow.hasMore ? <div ref={floorWindow.sentinelRef} aria-hidden="true" className="h-1" /> : null}
+        </>
+      )}
+      </>
+    );
+  }, [query, stats, sitting, month, picture, lens, face, cols, kinds, kind, filterOpen, pieces, notice, phase, error, visible, chip, groups, openCats, wideGrid, wideCols, layout, marks, nestClass, floorWindow.count, floorWindow.hasMore, loadSampleFloor, openPieceCard, statusPieceCard, deletePieceCard, problemPieceCard]);
+
+  const historyContent = useMemo(() => {
+    return (
+      <>
+      <input
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="Search pieces"
+        className="surface fold-row h-12 w-full rounded-2xl border border-line bg-panel px-4 text-sm outline-none focus:border-accent"
+      />
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <HistoryChip
+          label="Sold"
+          value={String(pieces.filter((piece) => piece.status === "sold").reduce((sum, piece) => sum + piece.qty, 0))}
+          hint={money(pieces.filter((piece) => piece.status === "sold" && piece.saleCents != null).reduce((sum, piece) => sum + (piece.saleCents ?? 0) * piece.qty, 0))}
+          icon={BadgeCheck}
+          tone="#c47b4a"
+          pressed={past === "sold"}
+          onClick={() => setPast("sold")}
+        />
+        <HistoryChip
+          label="Archive"
+          value={String(pieces.filter((piece) => piece.status === "archived").reduce((sum, piece) => sum + piece.qty, 0))}
+          hint="Still in the numbers"
+          icon={Archive}
+          tone="#4f7f8a"
+          pressed={past === "archived"}
+          onClick={() => setPast("archived")}
+        />
+      </div>
+      {adsOn ? <AdsWidget ads={ads} pieces={pieces} onChange={setAds} /> : null}
+      <ViewBar face={face} cols={cols} onFace={setFace} onCols={setCols} kinds={past === "sold" ? products : kinds} kind={past === "sold" ? product : kind} open={filterOpen} onToggle={() => setFilterOpen((open) => !open)} onKind={(id) => { if (past === "sold") setProduct(id); else setKind(id); setFilterOpen(false); }} />
+      {/* Tablet landscape (1.1.4): the By product board stands beside the list instead of above it.
+          The grid only exists when the board does, so an archive list (or an empty shelf) keeps the
+          full width. Below lg the stacking is exactly as before. */}
+      <div className={past === "sold" && soldLines.some((row) => product === "all" || row.name.toLowerCase() === product) ? "lg:grid lg:grid-cols-2 lg:items-start lg:gap-4" : undefined}>
+      {past === "sold" && soldLines.some((row) => product === "all" || row.name.toLowerCase() === product) ? <SalesBoard title="By product" rows={soldLines.filter((row) => product === "all" || row.name.toLowerCase() === product)} /> : null}
+      {history.length === 0 ? (
+        query.trim() ? (
+          // 1.8.0: the shared search can empty History too — say that, instead of
+          // "Nothing sold yet" printed directly under a SOLD chip counting sales (G-5).
+          <div className="mt-6 rounded-3xl border border-line bg-panel px-6 py-8">
+            <p className="font-display text-3xl">No pieces match “{query.trim()}”</p>
+            <p className="mt-2 max-w-sm text-sm text-muted">History is not empty — the search is hiding everything in it.</p>
+          </div>
+        ) : (
+        <div className="mt-6 rounded-3xl border border-line bg-panel px-6 py-8">
+          <p className="font-display text-3xl">{past === "sold" ? (product === "all" ? "Nothing sold yet" : "Nothing under this product") : "Nothing archived"}</p>
+          <p className="mt-2 max-w-sm text-sm text-muted">
+            {past === "sold" ? "Mark a piece sold and it lands here, with its price and its dates." : "Retire a piece and it stays here. Its sale still counts in Statistics."}
+          </p>
+        </div>
+        )
+      ) : (
+        <ul key={`${past}-${layout}`} className={listClass}>
+          {history.slice(0, historyWindow.count).map((piece) => (
+            <PieceCard
+              key={piece.id}
+              piece={piece}
+              layout={layout}
+              onOpen={openPieceCard}
+              onStatus={statusPieceCard}
+              onDelete={deletePieceCard}
+              onProblem={problemPieceCard}
+            />
+          ))}
+        </ul>
+      )}
+      {history.length > 0 && historyWindow.hasMore ? <div ref={historyWindow.sentinelRef} aria-hidden="true" className="h-1" /> : null}
+      </div>
+      </>
+    );
+  }, [query, pieces, past, adsOn, ads, face, cols, products, kinds, product, kind, filterOpen, soldLines, history, layout, listClass, historyWindow.count, historyWindow.hasMore, openPieceCard, statusPieceCard, deletePieceCard, problemPieceCard]);
+
+  const ledgerContent = useMemo(() => {
+    return (
+      <>
+      {/* Tablet landscape (1.1.4): the desk switch steps aside and both desks stand side by side,
+          chart and advice in two columns. Below lg the switch and the single desk are untouched. */}
+      <div className="grid grid-cols-2 gap-2 lg:hidden">
+        {([
+          ["stats", "Statistics"],
+          ["advisor", "Advisor"],
+        ] as const).map(([id, label]) => (
+          <RippleButton
+            key={id}
+            nav={id}
+            aria-pressed={desk === id}
+            onClick={() => setDesk(id)}
+            className={`press h-11 rounded-2xl border text-sm font-medium ${desk === id ? "border-line bg-panel text-ink" : "border-line/70 text-muted"}`}
+          >
+            {label}
+          </RippleButton>
+        ))}
+      </div>
+      {exporting ? <ExportCenter pieces={pieces} ads={adsOn ? ads : []} advice={brief} onClose={() => setExporting(false)} onDone={setNotice} /> : null}
+      <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-5">
+        <div className={desk === "stats" ? "min-w-0" : "hidden min-w-0 lg:block"}>
+          <StatsDesk pieces={pieces} ads={ads} adsOn={adsOn} lines={brief.lines} openStats={openStats} pinnedStats={pinnedStats} foldStat={foldStat} pinStat={pinStat} />
+        </div>
+        <div className={desk === "advisor" ? "min-w-0" : "hidden min-w-0 lg:block"}>
+          <AdvisorView
+          advice={brief}
+          pieces={pieces}
+          onOpen={(piece, focus) => { setEditorFocus(focus ?? null); setEditor({ ...piece }); }}
+          onPhoto={(piece, file) => {
+            void compressPhoto(file).then((photo) => {
+              if (!photo) return;
+              void savePiece({ data: { ...piece, photo } }).then((saved) => {
+                if (saved) setPieces((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+              });
+            });
+          }}
+          onKeep={(piece) => {
+            void savePiece({ data: { ...piece, status: "kept" } }).then((saved) => {
+              if (saved) setPieces((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+            });
+          }}
+          onReturn={(piece) => {
+            void savePiece({ data: { ...piece, status: "available", saleCents: null, soldOn: null, wasSold: false } }).then((saved) => {
+              if (saved) setPieces((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+            });
+          }}
+          onRemove={(piece, reason) => {
+            const note = piece.notes.includes(reason) ? piece.notes : `${piece.notes ? `${piece.notes} · ` : ""}Removed: ${reason}`;
+            void savePiece({ data: { ...piece, status: "archived", wasSold: false, saleCents: null, soldOn: null, notes: note } }).then((saved) => {
+              if (saved) {
+                setPieces((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+                // A Remove gets the house's Reverse strip, like Sold and Delete (button audit V-5).
+                setUndo({ previous: piece, name: piece.name, what: "Remove" });
+                setUndoOpen(false);
+              }
+            });
+          }}
+          onFlag={(piece) => {
+            void savePiece({ data: { ...piece, problem: "late" } }).then((saved) => {
+              if (saved) setPieces((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+            });
+          }}
+          />
+        </div>
+      </div>
+      </>
+    );
+  }, [desk, exporting, pieces, ads, adsOn, brief, openStats, pinnedStats, foldStat, pinStat]);
+
   return (
     <main
       className="mx-auto min-h-dvh w-full max-w-3xl px-4 pb-28 lg:max-w-none lg:px-8"
@@ -763,281 +1136,15 @@ export function House() {
 
       <div className="relative mt-5">
         <section className={`${panel("floor")} bloom`}>
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search pieces"
-            className="surface fold-row h-12 w-full rounded-2xl border border-line bg-panel px-4 text-sm outline-none focus:border-accent"
-          />
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            {([
-              ["hand", "On hand", String(stats.available), stats.available ? `${money(sitting("available"))} ready` : "Nothing on the floor yet", Package, "#5f8f72"],
-              ["incoming", "Incoming", String(stats.incoming), stats.incoming ? `${money(sitting("incoming"))} on the way` : "Nothing on the road yet", Truck, "#5d86ad"],
-              ["revenue", "Revenue", money(stats.revenue), month ? `${month.label} · ${money(month.revenue)}` : "Nothing on the books yet", CircleDollarSign, "#b08a3e"],
-              ["profit", "Profit", money(stats.profit), picture.margin == null ? "No profit yet" : `${picture.margin}% after cost`, TrendingUp, "#8d6aad"],
-            ] as const).map(([id, label, value, hint, icon, tone]) => (
-              <Summary
-                key={id}
-                label={label}
-                value={value}
-                hint={hint}
-                icon={icon}
-                tone={tone}
-                pressed={lens === id}
-                dimmed={lens !== null && lens !== id}
-                onClick={() => {
-                  setLens((current) => (current === id ? null : id));
-                  setView("floor");
-                }}
-              />
-            ))}
-          </div>
-          <ViewBar face={face} cols={cols} onFace={setFace} onCols={setCols} kinds={kinds} kind={kind} open={filterOpen} onToggle={() => setFilterOpen((open) => !open)} onKind={(id) => { setKind(id); setFilterOpen(false); }} />
-          {lens === "revenue" || lens === "profit" ? (
-            <div className="mt-4 space-y-3">
-              <Performance pieces={pieces} focus={lens} />
-              <LatestSales pieces={pieces} onOpen={(piece) => { setEditorFocus(null); setEditor({ ...piece }); }} />
-            </div>
-          ) : (
-            <>
-          {notice ? <p className="mt-3 text-sm text-accent">{notice}</p> : null}
-          {phase === "loading" ? <p className="mt-8 text-muted">Opening the floor</p> : null}
-          {phase === "error" ? (
-            <div className="mt-6 rounded-3xl border border-line bg-panel p-6">
-              <p className="font-display text-2xl">The floor did not open</p>
-              <p className="mt-2 text-sm text-muted">{error}</p>
-            </div>
-          ) : null}
-          {phase === "ready" && visible.length === 0 ? (
-            pieces.length > 0 && (query.trim().length > 0 || kind !== "all" || chip !== "live" || lens !== null) ? (
-              // 1.8.0: a filtered-empty view says so — before, a search that matched
-              // nothing declared "Nothing on this shelf" and offered to load the
-              // sample floor onto a floor that was not empty at all (G-5).
-              <div className="mt-6 rounded-3xl border border-line bg-panel px-6 py-8">
-                <p className="font-display text-3xl">{query.trim() ? `No pieces match “${query.trim()}”` : "No pieces match these filters"}</p>
-                <p className="mt-2 max-w-sm text-sm text-muted">The floor is not empty — this view is hiding everything on it.</p>
-              </div>
-            ) : (
-              <div className="mt-6 rounded-3xl border border-line bg-panel px-6 py-8">
-                <p className="font-display text-3xl">Nothing on this shelf</p>
-                <p className="mt-2 max-w-sm text-sm text-muted">Incoming and available stay here. Sold and archive live in History.</p>
-                <button
-                  type="button"
-                  className="press mt-5 h-11 rounded-full border border-line px-4 text-sm"
-                  onClick={loadSampleFloor}
-                >
-                  Load a sample floor
-                </button>
-              </div>
-            )
-          ) : null}
-          <div className="mt-4 space-y-3">
-            {groups.map((group) => {
-              const open = query.trim().length > 0 || openCats.includes(group.category);
-              return (
-                <section key={group.category}>
-                  <button
-                    type="button"
-                    aria-expanded={open}
-                    className="press fold-row flex w-full items-center gap-3 rounded-2xl border border-line bg-panel px-4 py-3 text-left"
-                    onClick={() => setOpenCats((current) => (current.includes(group.category) ? current.filter((item) => item !== group.category) : [...current, group.category]))}
-                  >
-                    <span className="min-w-0 flex-1 truncate font-medium">{group.category}</span>
-                    <span className="rounded-full border border-line bg-panel-2 px-2 py-0.5 text-xs tabular-nums text-muted">{group.count}</span>
-                    <ChevronDown className={`size-4 text-muted transition-transform ${open ? "rotate-180" : ""}`} strokeWidth={1.75} />
-                  </button>
-                  {open ? (
-                    <div className={wideGrid ? `mt-3 space-y-4 lg:grid ${wideCols} ${layout === "g4" ? "lg:gap-1.5" : "lg:gap-2"} lg:space-y-0` : "mt-3 space-y-4"}>
-                      {group.subs.map((sub) => {
-                        const photo = marks.find((mark) => mark.category.toLowerCase() === group.category.toLowerCase() && mark.subcategory.toLowerCase() === sub.name.toLowerCase())?.photo ?? "";
-                        return (
-                        <div key={sub.name || "plain"} className={wideGrid ? "lg:contents" : undefined}>
-                          {sub.name ? (
-                            <div className={`fold-row flex items-center gap-3 rounded-2xl border border-line bg-panel p-2 pr-4${wideGrid ? " lg:self-start" : ""}`}>
-                              <label className="press relative grid size-16 shrink-0 cursor-pointer place-items-center overflow-hidden rounded-xl bg-canvas text-muted">
-                                {photo ? <img src={photo} alt="" className="size-full object-cover" /> : <ImagePlus className="size-5" strokeWidth={1.75} />}
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  className="sr-only"
-                                  onChange={(event) => {
-                                    const file = event.target.files?.[0];
-                                    event.target.value = "";
-                                    if (!file) return;
-                                    void compressPhoto(file).then((next) => {
-                                      if (!next) return;
-                                      void saveMark({ data: { category: group.category, subcategory: sub.name, photo: next } }).then(setMarks);
-                                    });
-                                  }}
-                                />
-                              </label>
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate font-medium">{sub.name}</span>
-                                <span className="block text-xs text-muted">{photo ? `${sub.items.length} inside` : "Add a photo"}</span>
-                              </span>
-                            </div>
-                          ) : null}
-                          <ul className={`${nestClass} ${sub.name ? "mt-2" : ""}${wideGrid ? " lg:contents" : ""}`}>
-                            {sub.items.map((piece) => (
-                              <PieceCard
-                                key={piece.id}
-                                piece={piece}
-                                layout={layout}
-                                iconic
-                                onOpen={() => { setEditorFocus(null); setEditor({ ...piece }); }}
-                                onStatus={(status) => requestStatus(piece, status)}
-                                onDelete={() => setConfirmId(piece.id)}
-                                onProblem={(problem) => requestProblem(piece, problem)}
-                              />
-                            ))}
-                          </ul>
-                        </div>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </section>
-              );
-            })}
-          </div>
-            </>
-          )}
+          {floorContent}
         </section>
 
         <section className={`${panel("history")} bloom`}>
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search pieces"
-            className="surface fold-row h-12 w-full rounded-2xl border border-line bg-panel px-4 text-sm outline-none focus:border-accent"
-          />
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <HistoryChip
-              label="Sold"
-              value={String(pieces.filter((piece) => piece.status === "sold").reduce((sum, piece) => sum + piece.qty, 0))}
-              hint={money(pieces.filter((piece) => piece.status === "sold" && piece.saleCents != null).reduce((sum, piece) => sum + (piece.saleCents ?? 0) * piece.qty, 0))}
-              icon={BadgeCheck}
-              tone="#c47b4a"
-              pressed={past === "sold"}
-              onClick={() => setPast("sold")}
-            />
-            <HistoryChip
-              label="Archive"
-              value={String(pieces.filter((piece) => piece.status === "archived").reduce((sum, piece) => sum + piece.qty, 0))}
-              hint="Still in the numbers"
-              icon={Archive}
-              tone="#4f7f8a"
-              pressed={past === "archived"}
-              onClick={() => setPast("archived")}
-            />
-          </div>
-          {adsOn ? <AdsWidget ads={ads} pieces={pieces} onChange={setAds} /> : null}
-          <ViewBar face={face} cols={cols} onFace={setFace} onCols={setCols} kinds={past === "sold" ? products : kinds} kind={past === "sold" ? product : kind} open={filterOpen} onToggle={() => setFilterOpen((open) => !open)} onKind={(id) => { if (past === "sold") setProduct(id); else setKind(id); setFilterOpen(false); }} />
-          {/* Tablet landscape (1.1.4): the By product board stands beside the list instead of above it.
-              The grid only exists when the board does, so an archive list (or an empty shelf) keeps the
-              full width. Below lg the stacking is exactly as before. */}
-          <div className={past === "sold" && soldLines.some((row) => product === "all" || row.name.toLowerCase() === product) ? "lg:grid lg:grid-cols-2 lg:items-start lg:gap-4" : undefined}>
-          {past === "sold" && soldLines.some((row) => product === "all" || row.name.toLowerCase() === product) ? <SalesBoard title="By product" rows={soldLines.filter((row) => product === "all" || row.name.toLowerCase() === product)} /> : null}
-          {history.length === 0 ? (
-            query.trim() ? (
-              // 1.8.0: the shared search can empty History too — say that, instead of
-              // "Nothing sold yet" printed directly under a SOLD chip counting sales (G-5).
-              <div className="mt-6 rounded-3xl border border-line bg-panel px-6 py-8">
-                <p className="font-display text-3xl">No pieces match “{query.trim()}”</p>
-                <p className="mt-2 max-w-sm text-sm text-muted">History is not empty — the search is hiding everything in it.</p>
-              </div>
-            ) : (
-            <div className="mt-6 rounded-3xl border border-line bg-panel px-6 py-8">
-              <p className="font-display text-3xl">{past === "sold" ? (product === "all" ? "Nothing sold yet" : "Nothing under this product") : "Nothing archived"}</p>
-              <p className="mt-2 max-w-sm text-sm text-muted">
-                {past === "sold" ? "Mark a piece sold and it lands here, with its price and its dates." : "Retire a piece and it stays here. Its sale still counts in Statistics."}
-              </p>
-            </div>
-            )
-          ) : (
-            <ul key={`${past}-${layout}`} className={listClass}>
-              {history.map((piece) => (
-                <PieceCard
-                  key={piece.id}
-                  piece={piece}
-                  layout={layout}
-                  onOpen={() => { setEditorFocus(null); setEditor({ ...piece }); }}
-                  onStatus={(status) => requestStatus(piece, status)}
-                  onDelete={() => setConfirmId(piece.id)}
-                  onProblem={(problem) => requestProblem(piece, problem)}
-                />
-              ))}
-            </ul>
-          )}
-          </div>
+          {historyContent}
         </section>
 
         <section className={`${panel("ledger")} bloom`}>
-          {/* Tablet landscape (1.1.4): the desk switch steps aside and both desks stand side by side,
-              chart and advice in two columns. Below lg the switch and the single desk are untouched. */}
-          <div className="grid grid-cols-2 gap-2 lg:hidden">
-            {([
-              ["stats", "Statistics"],
-              ["advisor", "Advisor"],
-            ] as const).map(([id, label]) => (
-              <RippleButton
-                key={id}
-                nav={id}
-                aria-pressed={desk === id}
-                onClick={() => setDesk(id)}
-                className={`press h-11 rounded-2xl border text-sm font-medium ${desk === id ? "border-line bg-panel text-ink" : "border-line/70 text-muted"}`}
-              >
-                {label}
-              </RippleButton>
-            ))}
-          </div>
-          {exporting ? <ExportCenter pieces={pieces} ads={adsOn ? ads : []} advice={brief} onClose={() => setExporting(false)} onDone={setNotice} /> : null}
-          <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-5">
-            <div className={desk === "stats" ? "min-w-0" : "hidden min-w-0 lg:block"}>
-              <StatsDesk pieces={pieces} ads={ads} adsOn={adsOn} lines={brief.lines} openStats={openStats} pinnedStats={pinnedStats} foldStat={foldStat} pinStat={pinStat} />
-            </div>
-            <div className={desk === "advisor" ? "min-w-0" : "hidden min-w-0 lg:block"}>
-              <AdvisorView
-              advice={brief}
-              pieces={pieces}
-              onOpen={(piece, focus) => { setEditorFocus(focus ?? null); setEditor({ ...piece }); }}
-              onPhoto={(piece, file) => {
-                void compressPhoto(file).then((photo) => {
-                  if (!photo) return;
-                  void savePiece({ data: { ...piece, photo } }).then((saved) => {
-                    if (saved) setPieces((current) => current.map((item) => (item.id === saved.id ? saved : item)));
-                  });
-                });
-              }}
-              onKeep={(piece) => {
-                void savePiece({ data: { ...piece, status: "kept" } }).then((saved) => {
-                  if (saved) setPieces((current) => current.map((item) => (item.id === saved.id ? saved : item)));
-                });
-              }}
-              onReturn={(piece) => {
-                void savePiece({ data: { ...piece, status: "available", saleCents: null, soldOn: null, wasSold: false } }).then((saved) => {
-                  if (saved) setPieces((current) => current.map((item) => (item.id === saved.id ? saved : item)));
-                });
-              }}
-              onRemove={(piece, reason) => {
-                const note = piece.notes.includes(reason) ? piece.notes : `${piece.notes ? `${piece.notes} · ` : ""}Removed: ${reason}`;
-                void savePiece({ data: { ...piece, status: "archived", wasSold: false, saleCents: null, soldOn: null, notes: note } }).then((saved) => {
-                  if (saved) {
-                    setPieces((current) => current.map((item) => (item.id === saved.id ? saved : item)));
-                    // A Remove gets the house's Reverse strip, like Sold and Delete (button audit V-5).
-                    setUndo({ previous: piece, name: piece.name, what: "Remove" });
-                    setUndoOpen(false);
-                  }
-                });
-              }}
-              onFlag={(piece) => {
-                void savePiece({ data: { ...piece, problem: "late" } }).then((saved) => {
-                  if (saved) setPieces((current) => current.map((item) => (item.id === saved.id ? saved : item)));
-                });
-              }}
-              />
-            </div>
-          </div>
+          {ledgerContent}
         </section>
       </div>
 
@@ -2088,7 +2195,10 @@ function Swap<T extends string>({
   );
 }
 
-function PieceCard({
+// 1.10.0: memoized, with piece-taking handlers — the House passes four stable
+// callbacks instead of four fresh closures per card per render, so a view
+// switch (or any unrelated re-render) no longer re-renders every mounted card.
+const PieceCard = memo(function PieceCard({
   piece,
   layout,
   iconic = false,
@@ -2100,10 +2210,10 @@ function PieceCard({
   piece: Piece;
   layout: Layout;
   iconic?: boolean;
-  onOpen: () => void;
-  onStatus: (status: Status) => void;
-  onDelete: () => void;
-  onProblem: (problem: string) => void;
+  onOpen: (piece: Piece) => void;
+  onStatus: (piece: Piece, status: Status) => void;
+  onDelete: (piece: Piece) => void;
+  onProblem: (piece: Piece, problem: string) => void;
 }) {
   const [flags, setFlags] = useState(false);
   const held = daysHeld(piece.receivedOn, piece.soldOn);
@@ -2111,10 +2221,10 @@ function PieceCard({
   const Portrait = typeIcon(piece);
   const profit = unitProfitCents(piece);
   const actions: { key: string; label: string; icon: typeof Check; onClick: () => void; tone?: "accent" | "danger" }[] = [
-    { key: "sold", label: "Sold", icon: BadgeCheck, onClick: () => onStatus("sold"), tone: piece.status === "sold" ? "accent" : undefined },
-    { key: "incoming", label: "Coming", icon: Truck, onClick: () => onStatus("incoming"), tone: piece.status === "incoming" ? "accent" : undefined },
+    { key: "sold", label: "Sold", icon: BadgeCheck, onClick: () => onStatus(piece, "sold"), tone: piece.status === "sold" ? "accent" : undefined },
+    { key: "incoming", label: "Coming", icon: Truck, onClick: () => onStatus(piece, "incoming"), tone: piece.status === "incoming" ? "accent" : undefined },
     { key: "problem", label: "Problem", icon: CircleAlert, onClick: () => setFlags((open) => !open), tone: piece.problem ? "danger" : undefined },
-    { key: "delete", label: "Delete", icon: Trash2, onClick: onDelete, tone: "danger" },
+    { key: "delete", label: "Delete", icon: Trash2, onClick: () => onDelete(piece), tone: "danger" },
   ];
   const sizeLine = [piece.sizeLabel ? `${piece.sizeSystem} ${piece.sizeLabel}` : "", piece.usSize ? `US ${halfSize(piece.usSize)}` : ""].filter(Boolean).join(" · ");
   const frame = !iconic && piece.photo ? (
@@ -2126,7 +2236,7 @@ function PieceCard({
   if (layout === "medium") {
     return (
       <li>
-        <button type="button" onClick={onOpen} className="framed press flex w-full items-center gap-3 rounded-3xl bg-panel p-3 text-left">
+        <button type="button" onClick={() => onOpen(piece)} className="framed press flex w-full items-center gap-3 rounded-3xl bg-panel p-3 text-left">
           <span className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-2xl bg-canvas text-muted">{frame}</span>
           <span className="min-w-0 flex-1">
             <span className="block truncate font-display text-lg leading-tight">{piece.name}</span>
@@ -2145,7 +2255,7 @@ function PieceCard({
   if (layout === "list") {
     return (
       <li>
-        <button type="button" onClick={onOpen} className="framed press flex w-full items-center gap-3 rounded-2xl bg-panel px-3 py-2 text-left">
+        <button type="button" onClick={() => onOpen(piece)} className="framed press flex w-full items-center gap-3 rounded-2xl bg-panel px-3 py-2 text-left">
           <span className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-canvas text-muted">{frame}</span>
           <span className="min-w-0 flex-1">
             <span className="block truncate font-medium">{piece.name}</span>
@@ -2164,7 +2274,7 @@ function PieceCard({
     const dense = layout === "g4" || layout === "g3";
     return (
       <li>
-        <button type="button" onClick={onOpen} className="framed press block w-full overflow-hidden rounded-2xl bg-panel text-left">
+        <button type="button" onClick={() => onOpen(piece)} className="framed press block w-full overflow-hidden rounded-2xl bg-panel text-left">
           <span className="grid aspect-square place-items-center overflow-hidden bg-canvas text-muted">{frame}</span>
           <span className={`block min-w-0 ${dense ? "p-1.5" : "p-2.5"}`}>
             <span className={`block truncate font-medium ${layout === "g4" ? "text-[11px] leading-tight" : "text-sm"}`}>{piece.name}</span>
@@ -2179,12 +2289,12 @@ function PieceCard({
   return (
     <li className="piece framed overflow-hidden rounded-3xl bg-panel">
       <div className="flex items-start gap-3 p-3.5">
-        <button type="button" onClick={onOpen} className="relative grid size-[4.75rem] shrink-0 place-items-center overflow-hidden rounded-[1.25rem] bg-canvas text-muted">
+        <button type="button" onClick={() => onOpen(piece)} className="relative grid size-[4.75rem] shrink-0 place-items-center overflow-hidden rounded-[1.25rem] bg-canvas text-muted">
           {piece.photo ? <img src={piece.photo} alt="" className="size-full object-cover" /> : <Portrait className="size-6" strokeWidth={1.5} />}
         </button>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <button type="button" className="min-w-0 text-left" onClick={onOpen}>
+            <button type="button" className="min-w-0 text-left" onClick={() => onOpen(piece)}>
               <p className="truncate font-display text-xl leading-tight">{piece.name}</p>
               <p className="mt-0.5 flex items-center gap-1.5 text-sm text-muted">
                 <span>{piece.category || "Piece"}</span>
@@ -2200,7 +2310,7 @@ function PieceCard({
             ) : (
               <button
                 type="button"
-                onClick={() => onStatus("available")}
+                onClick={() => onStatus(piece, "available")}
                 className="press inline-flex h-8 shrink-0 items-center gap-1 rounded-full border border-accent bg-accent px-3 text-sm font-medium text-accent-ink"
               >
                 <Check className="size-3.5" strokeWidth={2.25} />
@@ -2261,7 +2371,7 @@ function PieceCard({
               type="button"
               aria-pressed={piece.problem === item.id}
               className={`press h-9 rounded-full border px-3 text-sm ${piece.problem === item.id ? "border-danger text-danger" : "border-line"}`}
-              onClick={() => onProblem(piece.problem === item.id ? "" : item.id)}
+              onClick={() => onProblem(piece, piece.problem === item.id ? "" : item.id)}
             >
               {item.label}
             </button>
@@ -2270,7 +2380,7 @@ function PieceCard({
       ) : null}
     </li>
   );
-}
+});
 
 function adSpan(ad: Ad) {
   if (!ad.startedOn) return null;
