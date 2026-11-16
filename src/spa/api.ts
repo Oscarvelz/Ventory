@@ -7,7 +7,7 @@ import { asTheme } from "@/lib/ventory/themes";
 import * as store from "./store";
 
 type Mark = { category: string; subcategory: string; photo: string };
-type Check = { id: string; label: string; createdAt: string };
+type Check = { id: string; label: string; createdAt: string; count: number | null };
 
 function toPiece(id: string, raw: Record<string, unknown>): Piece {
   const r = raw as Partial<Piece>;
@@ -105,7 +105,7 @@ function prefs() {
   return { theme: asTheme(p.theme), adsOn: p.adsOn !== false };
 }
 function readChecks(): Check[] {
-  return store.checkpoints().map((c) => ({ id: c.id, label: c.label, createdAt: c.createdAt }));
+  return store.checkpoints().map((c) => ({ id: c.id, label: c.label, createdAt: c.createdAt, count: c.count ?? null }));
 }
 function pieceData(id: string, p: PieceInput, sort: number): Record<string, unknown> {
   const { id: _drop, ...rest } = { ...p, id };
@@ -237,44 +237,80 @@ export async function applyTrayImport({ data }: { data: { add: PieceInput[]; upd
   return readPieces();
 }
 
+type RestoreItem = { kind: "piece" | "ad" | "mark"; id: string; data?: Record<string, unknown>; deleted?: boolean };
+
+async function writeInChunks(items: RestoreItem[]) {
+  for (let i = 0; i < items.length; i += 400) await store.write(items.slice(i, i + 400));
+}
+
 /**
- * Restore: the Grok app's backup ({ app: "ventory", pieces }) or this app's fuller one (also ads and subcategory marks).
- * The floor as it was is kept first as a saved backup, so a restore can always be walked back.
+ * The one restore engine (1.6.0), shared by file restores and saved-backup restores.
+ * The floor as it was is kept first as a saved backup, so a restore can always be
+ * walked back — and since 1.6.0 that sentence is true: checkpoints can be restored.
+ * A restore replaces pieces, ads AND marks exactly: everything the floor holds now
+ * leaves (the pre-1.6.0 code only upserted ads and marks, so a restore resurrected
+ * whatever the backup had buried). Ids the backup carries are preserved — sample
+ * pieces keep their "sample-…" tags and stay removable as samples — and there is no
+ * silent ceiling: the pre-1.6.0 code truncated a restore at 2,000 pieces without a
+ * word; now the whole file lands, written in chunks.
  */
-export async function replaceFloor({ data: raw }: { data: unknown }) {
-  if (!raw || typeof raw !== "object" || !Array.isArray((raw as { pieces?: unknown }).pieces)) {
-    throw new Error("That file is not a Ventory backup.");
-  }
-  const body = raw as { pieces: PieceInput[]; ads?: unknown; marks?: unknown };
-  const incoming = body.pieces.slice(0, 2000).map(clean);
+async function applyRestore(body: { pieces: PieceInput[]; ads?: unknown; marks?: unknown }) {
+  const incoming = body.pieces.map(clean);
   const before = readPieces();
   if (before.length) await store.addCheckpoint(`Before restore ${new Date().toISOString().slice(0, 10)}`, { pieces: before, ads: readAds(), marks: readMarks() });
-  const items: { kind: "piece" | "ad" | "mark"; id: string; data?: Record<string, unknown>; deleted?: boolean }[] = before.map((p) => ({ kind: "piece", id: p.id, deleted: true }));
+  const items: RestoreItem[] = [];
+  for (const p of before) items.push({ kind: "piece", id: p.id, deleted: true });
+  for (const a of readAds()) items.push({ kind: "ad", id: a.id, deleted: true });
+  for (const m of readMarks()) items.push({ kind: "mark", id: `${m.category}|${m.subcategory}`, deleted: true });
+  const usedPieces = new Set<string>();
   let sort = 1;
   for (const p of incoming) {
-    const id = crypto.randomUUID();
+    const rawId = (p as PieceInput & { id?: unknown }).id;
+    const id = typeof rawId === "string" && rawId.length > 0 && rawId.length < 80 && !usedPieces.has(rawId) ? rawId : crypto.randomUUID();
+    usedPieces.add(id);
     items.push({ kind: "piece", id, data: pieceData(id, p, sort++) });
   }
   if (Array.isArray(body.ads)) {
-    const known = new Set(readAds().map((a) => a.id));
-    for (const a of body.ads.slice(0, 2000) as Partial<Ad>[]) {
+    const usedAds = new Set<string>();
+    for (const a of body.ads as Partial<Ad>[]) {
       const product = String(a?.product ?? "").trim().slice(0, 160);
       if (!product) continue;
-      const id = a.id && String(a.id).length < 80 && !known.has(String(a.id)) ? String(a.id) : crypto.randomUUID();
+      const rawId = a.id ? String(a.id) : "";
+      const id = rawId.length > 0 && rawId.length < 80 && !usedAds.has(rawId) ? rawId : crypto.randomUUID();
+      usedAds.add(id);
       items.push({ kind: "ad", id, data: { product, spentCents: Math.max(0, Math.round(Number(a.spentCents) || 0)), startedOn: a.startedOn || null, endedOn: a.endedOn || null, worked: asWorked(a.worked) } });
     }
   }
   if (Array.isArray(body.marks)) {
-    for (const m of body.marks.slice(0, 2000) as Partial<Mark>[]) {
+    for (const m of body.marks as Partial<Mark>[]) {
       const category = String(m?.category ?? "").trim().slice(0, 80);
       const subcategory = String(m?.subcategory ?? "").trim().slice(0, 80);
       const photo = String(m?.photo ?? "").startsWith("data:image/") ? String(m.photo).slice(0, 180_000) : "";
       if (category && subcategory) items.push({ kind: "mark", id: `${category}|${subcategory}`, data: { category, subcategory, photo } });
     }
   }
-  await store.write(items);
+  await writeInChunks(items);
   window.setTimeout(() => window.dispatchEvent(new Event("ventory-remote")), 0);
   return readPieces();
+}
+
+/**
+ * Restore: the Grok app's backup ({ app: "ventory", pieces }) or this app's fuller one (also ads and subcategory marks).
+ */
+export async function replaceFloor({ data: raw }: { data: unknown }) {
+  if (!raw || typeof raw !== "object" || !Array.isArray((raw as { pieces?: unknown }).pieces)) {
+    throw new Error("That file is not a Ventory backup.");
+  }
+  return applyRestore(raw as { pieces: PieceInput[]; ads?: unknown; marks?: unknown });
+}
+
+/** Restore one of the "Save backup" snapshots (1.6.0 — the door opens both ways now). */
+export async function restoreCheckpoint({ data: id }: { data: string }) {
+  const payload = await store.checkpointPayload(String(id));
+  if (!payload || typeof payload !== "object" || !Array.isArray((payload as { pieces?: unknown }).pieces)) {
+    throw new Error("That backup is no longer available.");
+  }
+  return applyRestore(payload as { pieces: PieceInput[]; ads?: unknown; marks?: unknown });
 }
 
 export async function createCheckpoint({ data }: { data: string }) {

@@ -11,7 +11,7 @@ import { ExportCenter } from "@/components/ventory/ExportCenter";
 import { ageTone, cash, compare, halfSize, marginOf, measure, pct, series, sizeName, TONES } from "@/lib/ventory/metrics";
 import { convertToUs } from "@/lib/ventory/sizes";
 import { APP_VERSION } from "@/spa/config";
-import { addSamples, applyTrayImport, clearSelected, createCheckpoint, deleteAd, deletePiece, importPieces, isLegacySample, loadFloor, removeSamples, replaceFloor, sampleSetSize, saveAd, saveAds, saveMark, savePiece, saveTheme } from "@/lib/ventory/server";
+import { addSamples, applyTrayImport, clearSelected, createCheckpoint, deleteAd, deletePiece, importPieces, isLegacySample, loadFloor, removeSamples, replaceFloor, restoreCheckpoint, sampleSetSize, saveAd, saveAds, saveMark, savePiece, saveTheme } from "@/lib/ventory/server";
 import { asTheme, isLightTheme, LIGHT_THEMES, THEMES, type ThemeId } from "@/lib/ventory/themes";
 import { tone as litTone, toneInk } from "@/lib/ventory/tones";
 import { syncBarsNow } from "@/spa/native";
@@ -308,6 +308,7 @@ export function House() {
   const [wipe, setWipe] = useState<string[]>([]);
   const [wipeAsk, setWipeAsk] = useState(false);
   const [sampleAsk, setSampleAsk] = useState(false);
+  const [checkAsk, setCheckAsk] = useState<{ id: string; label: string } | null>(null);
   const [wiping, setWiping] = useState(false);
   const [notice, setNotice] = useState("");
   // A notice reports a moment, not a state: it clears itself (button audit V-9).
@@ -1199,6 +1200,7 @@ export function House() {
                         }
                         const next = await replaceFloor({ data });
                         setPieces(next);
+                        void loadFloor().then((floor) => setChecks(floor.checkpoints)).catch(() => {});
                         setNotice("Backup restored");
                       }).catch((err: unknown) => setNotice(err instanceof Error ? err.message : "Could not import"));
                     }}
@@ -1218,11 +1220,29 @@ export function House() {
                 </button>
               </div>
               {checks.length ? (
-                <ul className="mt-3 space-y-1 text-sm text-muted">
-                  {checks.map((check) => (
-                    <li key={check.id}>{check.label}</li>
-                  ))}
-                </ul>
+                <>
+                  <ul className="mt-3 space-y-2">
+                    {checks.map((check) => (
+                      <li key={check.id} className="flex items-center justify-between gap-3">
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm">{check.label}</span>
+                          <span className="block text-xs text-faint">
+                            {new Date(check.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                            {check.count != null ? ` · ${check.count} ${check.count === 1 ? "piece" : "pieces"}` : ""}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          className="press h-9 shrink-0 rounded-full border border-line px-3 text-sm"
+                          onClick={() => setCheckAsk({ id: check.id, label: check.label })}
+                        >
+                          Restore
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs text-faint">Only the newest 12 backups are kept.</p>
+                </>
               ) : null}
             </SettingFold>
             <SettingFold title="Sample floor" icon={<LayoutGrid className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("sample")} onToggle={() => setOpenSettings((current) => current.includes("sample") ? current.filter((id) => id !== "sample") : [...current, "sample"])}>
@@ -1327,6 +1347,38 @@ export function House() {
               Remove
             </button>
             <button type="button" className="press h-11 rounded-full border border-line px-4 text-sm" onClick={() => setSampleAsk(false)}>Cancel</button>
+          </div>
+        </Overlay>
+      ) : null}
+
+      {checkAsk ? (
+        <Overlay onClose={() => setCheckAsk(null)}>
+          <p className="font-display text-2xl">Restore this backup?</p>
+          <p className="mt-3 text-sm leading-relaxed text-muted">
+            Your floor goes back to &ldquo;{checkAsk.label}&rdquo;. What you have now is first saved as a new backup, so this restore can be walked back too.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="press h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-ink"
+              onClick={() => {
+                const target = checkAsk;
+                setCheckAsk(null);
+                if (!target) return;
+                void restoreCheckpoint({ data: target.id }).then((next) => {
+                  setPieces(next);
+                  void loadFloor().then((floor) => {
+                    setAds(floor.ads);
+                    setMarks(floor.marks);
+                    setChecks(floor.checkpoints);
+                  }).catch(() => {});
+                  setNotice("Backup restored");
+                }).catch((err: unknown) => setNotice(err instanceof Error ? err.message : "Could not restore that backup"));
+              }}
+            >
+              Restore
+            </button>
+            <button type="button" className="press h-11 rounded-full border border-line px-4 text-sm" onClick={() => setCheckAsk(null)}>Cancel</button>
           </div>
         </Overlay>
       ) : null}

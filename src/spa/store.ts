@@ -7,7 +7,7 @@ import { CLOUD_READY, supabase } from "./cloud";
 
 export type Kind = "piece" | "ad" | "mark" | "pref";
 export type Rec = { uid: string; kind: Kind; id: string; data: Record<string, unknown>; updatedAt: string; deleted: boolean; dirty: boolean };
-export type CheckRow = { id: string; label: string; createdAt: string; pending?: boolean };
+export type CheckRow = { id: string; label: string; createdAt: string; pending?: boolean; count?: number };
 type Meta = { cursor: string; checks: CheckRow[]; wipeChecksBefore: string; lastSync: string };
 
 const DB = "ventory";
@@ -118,19 +118,54 @@ export function lastSynced() {
 
 /* ---------- checkpoints ("Save backup") ---------- */
 
+// The list the user sees is the whole truth: only the newest CHECK_CAP backups are
+// kept, on this device and in the list, in every mode (1.6.0 — before, payloads
+// accumulated to 40 in meta and without limit in the store while the list showed 12).
+const CHECK_CAP = 12;
+
 export function checkpoints(): CheckRow[] {
-  return [...meta.checks].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 12);
+  return [...meta.checks].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, CHECK_CAP);
 }
+
+async function pruneCheckpoints() {
+  const sorted = [...meta.checks].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const dropped = sorted.slice(CHECK_CAP);
+  if (!dropped.length) return;
+  meta.checks = sorted.slice(0, CHECK_CAP);
+  const d = await db();
+  const tx = d.transaction(CPQ, "readwrite");
+  const s = tx.objectStore(CPQ);
+  for (const c of dropped) s.delete(c.id);
+  await done(tx);
+  await persistMeta();
+}
+
 export async function addCheckpoint(label: string, payload: unknown) {
-  const row: CheckRow = { id: crypto.randomUUID(), label: label.slice(0, 80), createdAt: new Date().toISOString(), pending: true };
+  const pieces = (payload as { pieces?: unknown } | null)?.pieces;
+  const row: CheckRow = { id: crypto.randomUUID(), label: label.slice(0, 80), createdAt: new Date().toISOString(), pending: true, count: Array.isArray(pieces) ? pieces.length : 0 };
   const d = await db();
   const tx = d.transaction(CPQ, "readwrite");
   tx.objectStore(CPQ).put({ id: row.id, uid, label: row.label, createdAt: row.createdAt, payload });
   await done(tx);
-  meta.checks = [row, ...meta.checks].slice(0, 40);
+  meta.checks = [row, ...meta.checks];
   await persistMeta();
+  await pruneCheckpoints();
   soon();
   return checkpoints();
+}
+
+/** The snapshot itself, for a restore (1.6.0): this device's copy first, then the cloud's.
+    Before 1.6.0 nothing anywhere read a checkpoint payload back — "Save backup" was a
+    one-way door and Settings could only list the labels. */
+export async function checkpointPayload(id: string): Promise<unknown | null> {
+  const d = await db();
+  const row = (await ask(d.transaction(CPQ, "readonly").objectStore(CPQ).get(id))) as { uid: string; payload: unknown } | undefined;
+  if (row && row.uid === uid) return row.payload ?? null;
+  if (CLOUD_READY) {
+    const { data } = await supabase.from("ventory_checkpoints").select("payload").eq("id", id).maybeSingle();
+    if (data) return (data as { payload: unknown }).payload ?? null;
+  }
+  return null;
 }
 export async function wipeCheckpoints() {
   const n = meta.checks.length;
@@ -251,7 +286,7 @@ async function syncOnce() {
   const { data: cps } = await supabase.from("ventory_checkpoints").select("id,label,created_at").order("created_at", { ascending: false }).limit(12);
   if (cps) {
     const pend = meta.checks.filter((c) => c.pending);
-    meta.checks = [...pend, ...cps.map((c) => ({ id: String(c.id), label: String(c.label), createdAt: String(c.created_at) }))];
+    meta.checks = [...pend, ...cps.map((c) => ({ id: String(c.id), label: String(c.label), createdAt: String(c.created_at), count: meta.checks.find((x) => x.id === String(c.id))?.count }))];
   }
 
   // 3) pull what changed since the last pull (two minutes of overlap: merging is idempotent)
