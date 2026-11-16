@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { LogOut } from "lucide-react";
 import { askSignInAgain, lastUser, onUser, sessionGone, signOutEverywhereLocal, type VentoryUser } from "./cloud";
 import { disableLock, enableLock, lockCredential, lockSupported } from "./lock";
-import { forgetDevice, lastSynced, lastSyncError, pendingCount, syncNow } from "./store";
+import { forgetDevice, lastSynced, lastSyncError, pendingCount, syncIncomplete, syncNow } from "./store";
 
 export function useVentoryUser(): VentoryUser | null {
   const [u, setU] = useState<VentoryUser | null>(() => lastUser());
@@ -34,6 +34,7 @@ function useSyncLine() {
   if (sessionGone()) return "Sync is paused: your session ended. Everything stays on this device.";
   if (!navigator.onLine) return waiting ? `Offline. ${waiting} ${waiting === 1 ? "change waits" : "changes wait"} on this device.` : "Offline. Everything is on this device.";
   if (lastSyncError()) return waiting ? `${waiting} ${waiting === 1 ? "change waits" : "changes wait"} to sync.` : "Could not sync just now.";
+  if (waiting && syncIncomplete()) return `${waiting} ${waiting === 1 ? "change" : "changes"} couldn't sync yet. They'll keep trying.`;
   if (waiting) return "Syncing";
   const at = lastSynced();
   return at ? `Synced ${clock(at)}` : "Syncing";

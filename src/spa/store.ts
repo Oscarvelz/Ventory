@@ -197,6 +197,14 @@ let syncError = "";
 export function lastSyncError() {
   return syncError;
 }
+// 1.7.0: records re-stamped once already in this sync run (key → the stamp that
+// was refused), and whether the last completed run still left changes unsynced —
+// the account line says "couldn't sync yet" from this instead of a bare "Syncing".
+const restampedFor = new Map<string, string>();
+let lastRunIncomplete = false;
+export function syncIncomplete() {
+  return lastRunIncomplete;
+}
 export function soon(ms = 1200) {
   if (!CLOUD_READY || typeof window === "undefined") return;
   window.clearTimeout(timer);
@@ -216,6 +224,7 @@ export function syncNow(): Promise<void> {
     again = true;
     return running;
   }
+  restampedFor.clear(); // a fresh sync run earns each refused record one new re-stamp
   running = (async () => {
     try {
       do {
@@ -253,13 +262,42 @@ async function syncOnce() {
     const rows = batch.map((r) => ({ kind: r.kind, id: r.id, data: r.data, updated_at: r.updatedAt, deleted: r.deleted }));
     const { error } = await supabase.rpc("ventory_put", { p_rows: rows });
     if (error) throw error;
+    // 1.7.0 — verify, never trust the push. The shipped ventory_put applies a row
+    // only when its stamp is newer than the stored one and returns success either
+    // way, so a device whose clock runs behind had its edits silently refused —
+    // and this loop then cleared the dirty flag and the edit existed nowhere.
+    // Now the batch is read back: a record counts as synced only when the server's
+    // copy carries OUR stamp. A refused record is re-stamped above every stamp
+    // this device has seen (the read-back itself raises the floor) and stays
+    // dirty, so the next pass carries the edit up. Once per record per sync run;
+    // after that it simply stays waiting, honestly counted by pendingCount().
+    const { data: back, error: readErr } = await supabase.from("ventory_records").select("kind,id,updated_at,deleted").in("id", batch.map((r) => r.id));
+    if (readErr) throw readErr;
+    const seenBack = new Map<string, { updated_at: unknown; deleted: unknown }>();
+    for (const row of (back ?? []) as { kind: string; id: string; updated_at: unknown; deleted: unknown }[]) {
+      seenBack.set(key(row.kind as Kind, String(row.id)), row);
+      const at = Date.parse(String(row.updated_at));
+      if (Number.isFinite(at)) lastStamp = Math.max(lastStamp, at);
+    }
     const clean: Rec[] = [];
     for (const r of batch) {
-      const now = mem.get(key(r.kind, r.id));
-      // Only clear the flag if nothing changed it while it was on the way.
-      if (now && now.updatedAt === r.updatedAt && uid === me) {
+      const k = key(r.kind, r.id);
+      const now = mem.get(k);
+      // Only touch the flag if nothing changed it while it was on the way.
+      if (!now || now.updatedAt !== r.updatedAt || uid !== me) continue;
+      const srv = seenBack.get(k);
+      const accepted = Boolean(srv) && Date.parse(String(srv!.updated_at)) === Date.parse(r.updatedAt) && Boolean(srv!.deleted) === r.deleted;
+      if (accepted) {
         now.dirty = false;
+        restampedFor.delete(k);
         clean.push(now);
+      } else if (restampedFor.get(k) !== r.updatedAt) {
+        restampedFor.set(k, r.updatedAt);
+        now.updatedAt = stamp();
+        clean.push(now);
+        again = true;
+      } else {
+        clean.push(now); // still dirty; persisted as-is so the wait survives a reload
       }
     }
     await persist(clean);
@@ -313,7 +351,11 @@ async function syncOnce() {
       const local = mem.get(k);
       const remoteAt = Date.parse(String(row.updated_at));
       const localAt = local ? Date.parse(local.updatedAt) : -1;
-      if (local && local.dirty && localAt >= remoteAt) continue; // ours is newer: it goes up next push
+      if (Number.isFinite(remoteAt)) lastStamp = Math.max(lastStamp, remoteAt); // every stamp seen raises the floor
+      // 1.7.0: a pull NEVER overwrites a record this device still owes the cloud.
+      // The conflict resolves on the next push (where a refused row is re-stamped
+      // and verified), not by the pull silently executing the local edit.
+      if (local && local.dirty) continue;
       if (local && !local.dirty && localAt === remoteAt && local.deleted === Boolean(row.deleted)) continue; // already here
       if (local && localAt > remoteAt) continue;
       const rec: Rec = { uid: me, kind: row.kind as Kind, id: String(row.id), data: (row.data ?? {}) as Record<string, unknown>, updatedAt: new Date(remoteAt).toISOString(), deleted: Boolean(row.deleted), dirty: false };
@@ -329,6 +371,7 @@ async function syncOnce() {
     if (rows.length < 100) break;
   }
   meta.lastSync = new Date().toISOString();
+  lastRunIncomplete = [...mem.values()].some((r) => r.dirty);
   await persistMeta();
   if (changed) emit("ventory-remote");
 }
