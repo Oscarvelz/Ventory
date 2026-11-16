@@ -326,4 +326,159 @@ test("cluster pre-answers: a repeated line inside one list is another pair; a ma
   assert.equal(applied.update.length, 0);
 });
 
+// ── Wave 5 (1.9.0): the prejudice specimens P-1…P-17, pinned ─────────────────────
+const { parseAddedDate } = require(path.join(out, "paste.js"));
+
+test("P-17: a CR-only document parses line by line — nothing vanishes into one heading", () => {
+  const rows = rowsOf("# Trail Boots\r_ 44 = 9.5 ($20) *Home* for $40 — AddedAug28\r_ 45 = 10 ($22) *Home* for $45 — AddedAug29");
+  assert.equal(rows.length, 2);
+  assert.equal(rows[1].input.costCents, 2200);
+});
+
+test("P-1: bare dates read in written order — first is the arrival, second may be the sale", () => {
+  const [row] = rowsOf("# Test Boots\n_ 44 = 9.5 ($20) *Home* for $40 — Aug28 Sep10 - Sold");
+  assert.equal(row.input.receivedOn, "2026-08-28");
+  assert.equal(row.input.soldOn, "2026-09-10");
+  assert.equal(row.kind, "sale");
+  const [single] = rowsOf("# Test Boots\n_ 44 = 9.5 ($20) *Home* for $40 — Sep10 - Sold");
+  assert.equal(single.input.receivedOn, "2026-09-10");
+  assert.equal(single.input.soldOn, null);
+  assert.equal(single.kind, "stock");
+});
+
+test("P-2/P-3: count and price-range headings set the section — they never land as pieces", () => {
+  const hats = rowsOf("SOLD: 48 Hats\n_ 44 = 9.5 ($10) *Home* for $20 — AddedAug28");
+  assert.equal(hats.length, 1);
+  assert.equal(hats[0].input.category, "Hat");
+  const boots = rowsOf("Boots under $50\n_ 44 = 9.5 ($20) *Home* for $40 — AddedAug28");
+  assert.equal(boots.length, 1);
+  assert.equal(boots[0].input.category, "Boot");
+  assert.equal(boots[0].input.name, "Boots");
+});
+
+test("P-4: the sale formula after 'for' belongs to the sale — ask 40, charged 35, cost intact", () => {
+  const [row] = rowsOf("# Test Boots\n_ 44 = 9.5 ($20) *Home* for $40 − $5 off = $35 — AddedAug28 - SoldSep2");
+  assert.equal(row.kind, "sale");
+  assert.equal(row.input.costCents, 2000);
+  assert.equal(row.input.buyRebateCents, 0);
+  assert.equal(row.input.askCents, 4000);
+  assert.equal(row.input.saleCents, 3500);
+});
+
+test("P-5: a percent after a 'for $' price discounts the charged price, never the cost", () => {
+  const [row] = rowsOf("# Test Boots\n_ 44 = 9.5 ($20) *Home* for $40 10% off — AddedAug28 - SoldSep2");
+  assert.equal(row.kind, "sale");
+  assert.equal(row.input.saleCents, 3600);
+  assert.equal(row.input.buyRebateCents, 0);
+  assert.ok(row.input.notes.includes("10% off"));
+});
+
+test("P-6: '($20) = 9.5' is a size equivalence — no invented rebate, the US size survives", () => {
+  const [row] = rowsOf("# Test Boots\n_ 44 ($20) = 9.5 *Home* for $40 — AddedAug28");
+  assert.equal(row.input.costCents, 2000);
+  assert.equal(row.input.buyRebateCents, 0);
+  assert.equal(row.input.sizeLabel, "44");
+  assert.equal(row.input.usSize, "9.5");
+});
+
+test("P-7: a US size after '=' is not a cost — the row lands costless and flagged", () => {
+  const [row] = rowsOf("# Test Boots\n_ 44 = 9.50 *Home* for $40 — AddedAug28");
+  assert.equal(row.input.costCents, 0);
+  assert.ok(row.issues.includes("no-cost"));
+  const batch = tray.buildTray(parseDetailedNotes("# Test Boots\n_ 44 = 9.50 *Home* for $40 — AddedAug28", today, false), [], tray.defaultRules());
+  assert.equal(batch.rows[0].light, "amber");
+});
+
+test("P-8: thousands commas are read whole — $1,200 is a cost, $1,500 is an ask", () => {
+  const [row] = rowsOf("# Test Boots\n_ 44 = 9.5 ($1,200) *Home* for $1,500 — AddedAug28");
+  assert.equal(row.input.costCents, 120000);
+  assert.equal(row.input.askCents, 150000);
+});
+
+test("P-9: impossible dates are dropped and flagged, never stored as facts", () => {
+  const [added] = rowsOf("# Test Boots\n_ 44 = 9.5 ($20) *Home* for $40 — AddedFeb30");
+  assert.equal(added.input.receivedOn, null);
+  assert.ok(added.issues.includes("bad-date"));
+  const [sold] = rowsOf("# Test Boots\n_ 44 = 9.5 ($20) *Home* for $40 — AddedAug28 - SoldApr31");
+  assert.equal(sold.input.soldOn, null);
+  assert.ok(sold.issues.includes("bad-date"));
+  assert.equal(sold.kind, "stock");
+  assert.equal(parseAddedDate("Feb29", new Date(2026, 10, 7)), null);
+  assert.equal(parseAddedDate("Feb29", new Date(2024, 5, 1)), "2024-02-29");
+});
+
+test("P-10: a half size is one label — CN 44.5 = US 9.5 reads whole", () => {
+  const [row] = rowsOf("# Test Boots\n_ 44.5 = 9.5 ($20) *Home* for $40 — AddedAug28");
+  assert.equal(row.input.sizeLabel, "44.5");
+  assert.equal(row.input.usSize, "9.5");
+  assert.equal(row.input.costCents, 2000);
+});
+
+test("P-11: the written word GIFT outranks an 'Already sold' batch answer", () => {
+  const parsed = parseDetailedNotes("# Test Boots\n_ 44 = 9.5 ($20) GIFT *Home* for $40 — AddedAug28", today, true);
+  assert.equal(parsed.rows[0].kind, "gift");
+  assert.equal(parsed.rows[0].input.saleCents, null);
+});
+
+test("P-12: plain 'delivery $10' is delivery money, in neither price nor cost", () => {
+  const [row] = rowsOf("# Test Boots\n_ 44 = 9.5 ($20) *Home* for $40 delivery $10 — AddedAug28 - SoldSep2");
+  assert.equal(row.kind, "sale");
+  assert.equal(row.input.saleCents, 4000);
+  assert.equal(row.input.deliveryCents, 1000);
+});
+
+test("P-13: two pieces on one line — the first is read whole, the row is flagged", () => {
+  const rows = rowsOf("# Test Boots\n_ 44 = 9.5 ($20) *Home* for $40; 45 = 10 ($22) *Home* for $45 — AddedAug28");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].input.costCents, 2000);
+  assert.equal(rows[0].input.askCents, 4000);
+  assert.equal(rows[0].input.sizeLabel, "44");
+  assert.ok(rows[0].issues.includes("two-pieces"));
+});
+
+test("P-14: the tray never rewrites a year he actually wrote, even to fix chronology", () => {
+  const parsed = parseDetailedNotes("# Test Boots\n_ 44 = 9.5 ($20) *Home* for $40 — AddedDec28/2026 - SoldJan5/2025", today, false);
+  assert.equal(parsed.rows[0].input.soldOn, "2025-01-05");
+  const batch = tray.buildTray(parsed, [], { ...tray.defaultRules(), year: 2026 });
+  assert.equal(batch.rows[0].input.soldOn, "2025-01-05");
+});
+
+test("P-15: a chain-formed cluster is asked about with 'different' pre-answered", () => {
+  const floorPiece = {
+    id: "floor-chain", sort: 1, name: "Test Boots", category: "Boot", subcategory: "", brand: "", status: "available",
+    qty: 1, sizeSystem: "CN", sizeLabel: "44", usSize: "9.5", fit: "men", costCents: 2000, askCents: 4000,
+    saleCents: null, buyRebateCents: 0, deliveryCents: 0, source: "", channel: "", clientName: "",
+    receivedOn: "2026-08-01", soldOn: null, notes: "", place: "home", photo: "", problem: "", wasSold: false,
+  };
+  const parsed = parseDetailedNotes("# Test Boots\n_ 44 = 9.5 ($20) *Home* for $40 — AddedAug3\n_ 44 = 9.5 ($20) *Home* for $40 — AddedAug5", today, false);
+  const batch = tray.buildTray(parsed, [floorPiece], tray.defaultRules());
+  assert.equal(batch.clusters.length, 1);
+  assert.equal(batch.clusters[0].weak, true);
+  const applied = tray.applyTray(batch, tray.defaultDecisions(batch), [floorPiece]);
+  assert.equal(applied.add.length, 2);
+  assert.equal(applied.update.length, 0);
+});
+
+test("P-16: an undated re-paste is asked about by fingerprint — never silently duplicated", () => {
+  const floorPiece = {
+    id: "floor-undated", sort: 1, name: "Test Boots", category: "Boot", subcategory: "", brand: "", status: "available",
+    qty: 1, sizeSystem: "CN", sizeLabel: "44", usSize: "9.5", fit: "men", costCents: 2000, askCents: 4000,
+    saleCents: null, buyRebateCents: 0, deliveryCents: 0, source: "", channel: "", clientName: "",
+    receivedOn: null, soldOn: null, notes: "", place: "home", photo: "", problem: "", wasSold: false,
+  };
+  const parsed = parseDetailedNotes("# Test Boots\n_ 44 = 9.5 ($20) *Home* for $40", today, false);
+  const batch = tray.buildTray(parsed, [floorPiece], tray.defaultRules());
+  assert.equal(batch.clusters.length, 1);
+  assert.equal(batch.clusters[0].crossSource, true);
+  assert.equal(batch.clusters[0].weak, true);
+  const applied = tray.applyTray(batch, tray.defaultDecisions(batch), [floorPiece]);
+  assert.equal(applied.add.length, 1);
+  assert.equal(applied.update.length, 0);
+  const decisions = tray.defaultDecisions(batch);
+  decisions.clusters[batch.clusters[0].id] = "same";
+  const merged = tray.applyTray(batch, decisions, [floorPiece]);
+  assert.equal(merged.add.length, 0);
+  assert.equal(merged.update.length, 1);
+});
+
 console.log(`\n${passed} tests passed`);

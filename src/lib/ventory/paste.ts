@@ -61,6 +61,8 @@ export function parseAddedDate(token: string, today = new Date()) {
   const written = match[3] ? fullYear(match[3]) : null;
   let year = written ?? today.getFullYear();
   if (!written && new Date(year, month - 1, day).getTime() > today.getTime() + 45 * 86_400_000) year -= 1;
+  // 1.9.0: a day the month does not have (Feb 30, Apr 31) is not a date at all (P-9).
+  if (day > new Date(year, month, 0).getDate()) return null;
   return iso(year, month, day);
 }
 
@@ -110,7 +112,10 @@ function stripIndex(line: string) {
     if (!mark) break;
     const rest = next.slice(mark[0].length);
     const fraction = rest.match(/^(\d+)/);
-    const decimal = mark[2] === "." && !!fraction && fraction[1].length === 1 && Number(fraction[1]) <= 5 && Number(mark[1]) < 16;
+    // 1.9.0: a decimal token is a size, never an index — the old guard only protected
+    // numbers under 16, so a line opening "44.5 = 9.5" lost its "44." to the index
+    // stripper and the surviving "5" became a US size 5 (P-10).
+    const decimal = mark[2] === "." && !!fraction && fraction[1].length === 1 && Number(fraction[1]) <= 5;
     if (decimal) break;
     // "44. = 9.5" is a size pair wearing a stray dot (CN 44 = US 9.5), never an index: the
     // number sits in CN/EU range and the "=" follows it directly. A watch enumeration like
@@ -156,6 +161,21 @@ function isWeakHeading(name: string) {
   return /^(better ones|here|home)\b/i.test(name);
 }
 
+/**
+ * 1.9.0: two heading shapes used to parse as ROWS and land as phantom pieces — a
+ * count heading ("SOLD: 48 Hats") and a price-range heading ("Boots under $50").
+ * They name the section like any heading and never become pieces (P-2, P-3).
+ * Returns the section title as written, or null when the line is not one.
+ */
+function specialHeading(line: string): string | null {
+  const text = headingName(line);
+  const count = text.match(/^(?:[A-Za-z ]{1,24}:\s*)?(\d{1,4})\s+([A-Za-z][A-Za-z' -]*)$/);
+  if (count && kindOf(count[2])) return count[2].trim();
+  const range = text.match(/^([A-Za-z][A-Za-z' -]*?)\s+(?:under|below)\s+\$/i);
+  if (range && kindOf(range[1])) return range[1].trim();
+  return null;
+}
+
 function isSummary(line: string) {
   return /\bpairs\b/i.test(line);
 }
@@ -195,11 +215,20 @@ export type RowIssue =
   | "rebate-no-amount"
   | "true-cost"
   | "coming-sold"
-  | "personal-note";
+  | "personal-note"
+  // 1.9.0: a written date that does not exist (Feb 30) — dropped and flagged, never stored.
+  | "bad-date"
+  // 1.9.0: two pieces written on one line — only the first is read; the tray asks.
+  | "two-pieces"
+  // 1.9.0: no cost written anywhere — the number after the size was the US size.
+  | "no-cost";
 
 const MINUS = "[\\-−–]";
-const AMT = "\\$\\s*([0-9]+(?:\\s*\\.\\s*[0-9]{1,2})?)";
-const AMT_LOOSE = "\\$?\\s*([0-9]+(?:\\s*\\.\\s*[0-9]{1,2})?)";
+// 1.9.0: amounts carry their thousands commas whole — $1,200 is 120000 cents, not $1
+// with ",200" dropped on the floor (P-8). dollarsToCents already ignores the commas;
+// it was the capture patterns that stopped at them.
+const AMT = "\\$\\s*([0-9]+(?:,[0-9]{3})*(?:\\s*\\.\\s*[0-9]{1,2})?)";
+const AMT_LOOSE = "\\$?\\s*([0-9]+(?:,[0-9]{3})*(?:\\s*\\.\\s*[0-9]{1,2})?)";
 const centsOf = (raw: string) => dollarsToCents(raw.replace(/\s+/g, ""));
 
 /**
@@ -234,15 +263,24 @@ function takeRebate(line: string) {
   if (grossOverride == null) {
     match = next.match(new RegExp(`\\(\\s*${AMT}\\s*\\)\\s*=\\s*${AMT_LOOSE}`, "i"));
     if (match) {
-      grossOverride = centsOf(match[1]);
-      rebate += Math.max(0, centsOf(match[1]) - centsOf(match[2]));
-      next = next.replace(match[0], " ");
+      // 1.9.0: "($20) = 9.5" is a SIZE equivalence (CN cost paren, then "= US size"),
+      // not a credit — a bare result under 20 with no $ of its own is a shoe size,
+      // and eating it invented a $10.50 rebate and deleted the US size (P-6).
+      const resultPart = match[0].slice(match[0].indexOf("=") + 1);
+      if (resultPart.includes("$") || Number(match[2].replace(/[\s,]+/g, "")) >= 20) {
+        grossOverride = centsOf(match[1]);
+        rebate += Math.max(0, centsOf(match[1]) - centsOf(match[2]));
+        next = next.replace(match[0], " ");
+      }
     }
   }
   // 2) "$A − B off = $C" — the same formula written bare.
   if (grossOverride == null) {
     match = next.match(new RegExp(`${AMT}\\s*${MINUS}\\s*${AMT_LOOSE}\\s*off\\s*=\\s*${AMT_LOOSE}`, "i"));
-    if (match) {
+    // 1.9.0: the same formula after "for" is the SALE formula (ask − off = charged) —
+    // takeSale reads it there. Eating it here turned the ask into the cost and
+    // discarded the written cost entirely (P-4).
+    if (match && !/\bfor\s*$/i.test(next.slice(0, match.index))) {
       netFormula(centsOf(match[1]), centsOf(match[2]), centsOf(match[3]));
       next = next.replace(match[0], " ");
     }
@@ -266,7 +304,10 @@ function takeRebate(line: string) {
   }
   // 5) "P% off", with or without the amount written next to it.
   match = next.match(new RegExp(`([0-9]+(?:\\.[0-9]+)?)\\s*%\\s*off(?:\\s*\\(\\s*${MINUS}\\s*${AMT}\\s*\\+?\\s*\\))?`, "i"));
-  if (match) {
+  // 1.9.0: a percent that follows a "for $…" price belongs to the SALE — takeSale
+  // applies it to the charged price. As a purchase rebate it was computed on the
+  // cost, a number it was never taken from (P-5).
+  if (match && !/\bfor\s+\$[0-9]/.test(next.slice(0, match.index))) {
     notes.push(`${match[1]}% off`);
     if (match[2]) rebate += centsOf(match[2]);
     else pendingPercent = Number(match[1]);
@@ -295,7 +336,8 @@ function takeRebate(line: string) {
   }
   // 9) Plain "N off" — the canonical form.
   match = next.match(new RegExp(`${AMT_LOOSE}\\s*off\\b`, "i"));
-  if (match) {
+  // 1.9.0: same sale-side fence as form 5 — after a "for $…" price, takeSale owns it.
+  if (match && !/\bfor\s+\$[0-9]/.test(next.slice(0, match.index))) {
     rebate += centsOf(match[1]);
     next = next.replace(match[0], " ");
   }
@@ -313,11 +355,12 @@ function takeCost(line: string) {
   let next = line.replace(/\(\s*\$\s*[0-9.]+\s*-\s*\$\s*[0-9.]+[^)]*\)/gi, " ");
   const broken = next.match(/\(\s*\$+\s*([0-9]+)\s*\)\s*\.\s*([0-9]+)\s*\)?/);
   if (broken) return { cents: dollarsToCents(`${broken[1]}.${broken[2]}`), line: next.replace(broken[0], " "), notes };
-  const normal = next.match(/\(\s*\$+\s*([0-9]+(?:\s*\.\s*[0-9]+)?)\s*\)/);
+  // 1.9.0: the cost captures carry thousands commas whole (P-8).
+  const normal = next.match(/\(\s*\$+\s*([0-9]+(?:,[0-9]{3})*(?:\s*\.\s*[0-9]+)?)\s*\)/);
   if (normal) return { cents: dollarsToCents(normal[1].replace(/\s+/g, "")), line: next.replace(normal[0], " "), notes };
-  const got = next.match(/\bgot(?:\s+it)?\s+for\s+\$\s*([0-9]+(?:\s*\.\s*[0-9]+)?)/i);
+  const got = next.match(/\bgot(?:\s+it)?\s+for\s+\$\s*([0-9]+(?:,[0-9]{3})*(?:\s*\.\s*[0-9]+)?)/i);
   if (got) return { cents: dollarsToCents(got[1].replace(/\s+/g, "")), line: next.replace(got[0], " "), notes };
-  const bare = /(?<![\w])\$\s*([0-9]+(?:\s*\.\s*[0-9]+)?)(?!\s*off\b)/gi;
+  const bare = /(?<![\w])\$\s*([0-9]+(?:,[0-9]{3})*(?:\s*\.\s*[0-9]+)?)(?!\s*off\b)/gi;
   for (const match of next.matchAll(bare)) {
     const start = match.index ?? 0;
     const before = next.slice(Math.max(0, start - 14), start);
@@ -328,8 +371,15 @@ function takeCost(line: string) {
     }
     return { cents: dollarsToCents(match[1].replace(/\s+/g, "")), line: next.slice(0, start) + " " + next.slice(start + match[0].length), notes };
   }
-  const plain = next.match(/(?<![\d.])([0-9]+\.[0-9]{2})(?!\s*off\b)/);
-  if (plain) return { cents: dollarsToCents(plain[1]), line: next.replace(plain[0], " "), notes };
+  // 1.9.0: the plain-decimal fallback must not claim a US size — in
+  // "44 = 9.50 … for $40" the 9.50 sits in the size-equivalence slot (right after
+  // "=") and is a size, not a cost; the row lands costless and flagged instead of
+  // wearing a $9.50 cost it never had (P-7).
+  for (const plain of next.matchAll(/(?<![\d.])([0-9]+\.[0-9]{2})(?!\s*off\b)/g)) {
+    const before = next.slice(0, plain.index ?? 0);
+    if (/=\s*$/.test(before)) continue;
+    return { cents: dollarsToCents(plain[1]), line: next.replace(plain[0], " "), notes };
+  }
   return { cents: 0, line: next, notes };
 }
 
@@ -348,12 +398,12 @@ function takeSale(line: string) {
   let price: number | null = null;
   let arrowSold = false;
 
-  const parenDelivery = next.match(/\(\s*delivery\s*\$\s*([0-9]+(?:\.[0-9]{1,2})?)\s*\)/i);
+  const parenDelivery = next.match(/\(\s*delivery\s*\$\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)\s*\)/i);
   if (parenDelivery) {
     delivery += dollarsToCents(parenDelivery[1]);
     next = next.replace(parenDelivery[0], " ");
   }
-  const plusDelivery = next.match(/\+\s*\$\s*([0-9]+(?:\.[0-9]{1,2})?)\s*delivery/i);
+  const plusDelivery = next.match(/\+\s*\$\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)\s*delivery/i);
   if (plusDelivery) {
     delivery += dollarsToCents(plusDelivery[1]);
     next = next.replace(plusDelivery[0], " ");
@@ -363,8 +413,15 @@ function takeSale(line: string) {
     delivery += dollarsToCents(barePlus[1]);
     next = next.replace(barePlus[0], " ");
   }
+  // 1.9.0: the plain spoken form "delivery $10" is delivery too — it used to
+  // vanish entirely, and the money it named was neither price nor delivery (P-12).
+  const plainDelivery = next.match(/\bdelivery\s*\$\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i);
+  if (plainDelivery) {
+    delivery += dollarsToCents(plainDelivery[1]);
+    next = next.replace(plainDelivery[0], " ");
+  }
 
-  const arrow = next.match(/\bfor\s+\$\s*([0-9]+(?:\.[0-9]{1,2})?)\s*(?:→|->|➜|⟶)\s*\$\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+  const arrow = next.match(/\bfor\s+\$\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)\s*(?:→|->|➜|⟶)\s*\$\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i);
   if (arrow) {
     askFromPrice = dollarsToCents(arrow[1]);
     price = dollarsToCents(arrow[2]);
@@ -372,7 +429,9 @@ function takeSale(line: string) {
     next = next.replace(arrow[0], " ");
   }
   if (price == null) {
-    const net = next.match(/\bfor\s+\$\s*([0-9]+(?:\.[0-9]{1,2})?)\s*[-\u2212–]\s*[0-9.]+\s*=\s*\$\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+    // 1.9.0: the net formula's middle term may carry its $ and the word "off"
+    // ("for $40 − $5 off = $35") — the old pattern could not cross it (P-4).
+    const net = next.match(/\bfor\s+\$\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)\s*[-\u2212–]\s*\$?\s*[0-9.]+\s*(?:off\s*)?=\s*\$\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i);
     if (net) {
       askFromPrice = dollarsToCents(net[1]);
       price = dollarsToCents(net[2]);
@@ -380,7 +439,7 @@ function takeSale(line: string) {
     }
   }
   if (price == null) {
-    const amounts = [...next.matchAll(/\b(?:sold\s+)?for\s+\$\s*([0-9]+(?:\s*\.\s*[0-9]{1,2})?)/gi)].map((m) => dollarsToCents(m[1].replace(/\s+/g, "")));
+    const amounts = [...next.matchAll(/\b(?:sold\s+)?for\s+\$\s*([0-9]+(?:,[0-9]{3})*(?:\s*\.\s*[0-9]{1,2})?)/gi)].map((m) => dollarsToCents(m[1].replace(/\s+/g, "")));
     if (amounts.length >= 2 && delivery > 0 && amounts[amounts.length - 1] - amounts[0] === delivery) {
       price = amounts[0];
     } else if (amounts.length) {
@@ -388,12 +447,28 @@ function takeSale(line: string) {
     }
   }
   if (price == null && /\bsold\b/i.test(next)) {
-    const inn = next.match(/\bin\s+\$\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+    const inn = next.match(/\bin\s+\$\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i);
     if (inn) price = dollarsToCents(inn[1]);
+  }
+  // 1.9.0: an "off" that belongs to the sale — "for $40, 10% off" charges $36.
+  // takeRebate leaves sale-side offs in the line on purpose now; they apply to
+  // the charged price here, once, and the note survives on the row (P-5).
+  if (price != null) {
+    const pctOff = next.match(/([0-9]+(?:\.[0-9]+)?)\s*%\s*off\b/i);
+    const bareOff = pctOff ? null : next.match(new RegExp(`${MINUS}?\\s*\\$\\s*([0-9]+(?:,[0-9]{3})*(?:\\.[0-9]{1,2})?)\\s*off\\b`, "i"));
+    if (pctOff) {
+      price = Math.round(price * (1 - Number(pctOff[1]) / 100));
+      notes.push(`${pctOff[1]}% off`);
+      next = next.replace(pctOff[0], " ");
+    } else if (bareOff) {
+      price = Math.max(0, price - dollarsToCents(bareOff[1]));
+      notes.push(`$${bareOff[1]} off`);
+      next = next.replace(bareOff[0], " ");
+    }
   }
   // What the client actually handed over, when it is more than the price: the extra is collected
   // money, so it rides with the delivery bucket — visible, and out of the piece's profit.
-  const handed = line.match(/(?:gave|paid)\s+me\s+\$\s*([0-9]+(?:\.[0-9]{1,2})?)/i) || line.match(/me\s+di[oó]\s+\$\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+  const handed = line.match(/(?:gave|paid)\s+me\s+\$\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i) || line.match(/me\s+di[oó]\s+\$\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i);
   if (handed && price != null) {
     const total = dollarsToCents(handed[1]);
     if (total > price) {
@@ -444,11 +519,13 @@ function takeSize(line: string) {
     label = cnWord[1];
     if (cnWord[2]) us = tidyUs(cnWord[2]);
   } else {
-    const cnEq = clean.match(new RegExp(`(?:^|[^\\d])(\\d{2})\\s*\\.?\\s*=\\s*(?:BOX\\s*[0-9.]+|${usBit})?`, "i"));
-    if (cnEq && Number(cnEq[1]) >= 30) {
+    // 1.9.0: a half size is one label — "44.5 = 9.5" is CN 44.5, not CN 44 with a
+    // stray ".5" left to be misread downstream (P-10).
+    const cnEq = clean.match(new RegExp(`(?:^|[^\\d])(\\d{2}(?:\\s*\\.\\s*[0-9])?)\\s*\\.?\\s*=\\s*(?:BOX\\s*[0-9.]+|${usBit})?`, "i"));
+    if (cnEq && Number(cnEq[1].replace(/\s+/g, "")) >= 30) {
       system = "CN";
       bare = true;
-      label = cnEq[1];
+      label = cnEq[1].replace(/\s+/g, "");
       if (cnEq[2] && (/^box/i.test(cnEq[2]) || Number(cnEq[2].replace(/\s+/g, "").replace("+", "")) < 20)) us = tidyUs(cnEq[2]);
     } else {
       const equivalent = clean.match(new RegExp(`equivalent\\s+to\\s*${usBit}`, "i"));
@@ -519,13 +596,16 @@ function datesOf(line: string, today: Date, soldBatch: boolean) {
     found.push({ kind: dateKind(match[1]), month, day, year: match[4] ? fullYear(match[4]) : null });
   }
   const saidSold = found.some((item) => item.kind === "sold") || /\bsold\b/i.test(line);
-  const saidAdded = /\badded\b|\bbuy\s*day\b/i.test(line);
   let added = found.find((item) => item.kind === "added") ?? null;
   let sold = found.find((item) => item.kind === "sold") ?? null;
   const bare = found.filter((item) => !item.kind);
-  if (!added && saidAdded) added = bare.shift() ?? null;
-  if (!sold && (saidSold || soldBatch)) sold = bare.shift() ?? null;
+  // 1.9.0: bare dates are read IN WRITTEN ORDER — the first bare date is always the
+  // arrival, and only a SECOND bare date may carry the sale, and only when a sale is
+  // otherwise claimed. The old order let the word "sold" anywhere on the line claim
+  // the FIRST date as the sale, which swapped arrival and sale and dragged the years
+  // a year out of true — the 1.4.0 lie returning through unlabeled dates (P-1).
   if (!added) added = bare.shift() ?? null;
+  if (!sold && (saidSold || soldBatch)) sold = bare.shift() ?? null;
 
   const afterToday = (year: number, month: number, day: number) => new Date(year, month - 1, day).getTime() > today.getTime();
   let addedYear = added ? (added.year ?? today.getFullYear()) : null;
@@ -542,9 +622,23 @@ function datesOf(line: string, today: Date, soldBatch: boolean) {
     soldYear -= 1;
     if (added && addedYear != null && !added.year) addedYear -= 1;
   }
-  const receivedOn = added && addedYear != null ? iso(addedYear, added.month, added.day) : null;
-  const soldOn = sold && soldYear != null ? iso(soldYear, sold.month, sold.day) : null;
-  return { receivedOn, soldOn, saidSold, addedYearWritten: !!added?.year, soldYearWritten: !!sold?.year };
+  // 1.9.0: a day the month does not have (Feb 30, Apr 31) is not stored as a fact —
+  // the date is dropped and the row is flagged for the tray instead (P-9).
+  const realDate = (year: number | null, month: number, day: number) =>
+    year != null && day <= new Date(year, month, 0).getDate() ? iso(year, month, day) : null;
+  const receivedRaw = added ? realDate(addedYear, added.month, added.day) : null;
+  const soldRaw = sold ? realDate(soldYear, sold.month, sold.day) : null;
+  const receivedOn = added ? receivedRaw : null;
+  const soldOn = sold ? soldRaw : null;
+  return {
+    receivedOn,
+    soldOn,
+    saidSold,
+    addedYearWritten: !!added?.year,
+    soldYearWritten: !!sold?.year,
+    addedBadDate: !!added && receivedRaw == null,
+    soldBadDate: !!sold && soldRaw == null,
+  };
 }
 
 function personName(raw: string) {
@@ -622,11 +716,24 @@ export function parseDetailedNotes(text: string, today = new Date(), soldBatch =
   let nextUnsure = false;
   const rows: DetailedRow[] = [];
   const loose: LooseLine[] = [];
-  for (const rawLine of text.split(/\r?\n/)) {
+  // 1.9.0: CR alone is a line ending too — a CR-only document used to arrive as ONE
+  // line, read as a heading, and every piece in it vanished without a trace (P-17).
+  for (const rawLine of text.split(/\r\n|\r|\n/)) {
     const line = rawLine.trim();
     if (!line || /^[.\s…]+$/.test(line)) continue;
     if (/^[?.!\s]+$/.test(line)) {
       nextUnsure = true;
+      continue;
+    }
+    const special = specialHeading(line);
+    if (special) {
+      title = special;
+      const kind = kindOf(special);
+      if (kind) {
+        category = kind.category;
+        fit = kind.fit;
+      }
+      source = sourceOf(special);
       continue;
     }
     const section = /^[#^]/.test(line) || isSummary(line);
@@ -678,6 +785,21 @@ export function parseDetailedNotes(text: string, today = new Date(), soldBatch =
       costGift = true;
       workD = workD.replace(/\(\s*\$?\s*gift\s*\)/i, " ");
     }
+    // 1.9.0: two pieces written on one line used to merge into a single row, the
+    // second piece's price overwriting the first's. The first piece is read whole;
+    // the row is flagged so the tray can ask for the second to be added by hand (P-13).
+    let twoPieces = false;
+    {
+      const parens = [...workD.matchAll(/\(\s*\$/g)];
+      const pairs = [...workD.matchAll(/\d{2}\s*=\s*[0-9]/g)];
+      if (parens.length >= 2 && pairs.length >= 2) {
+        const cut = Math.min(parens[1].index ?? Infinity, pairs[1].index ?? Infinity);
+        if (Number.isFinite(cut) && cut > 0) {
+          twoPieces = true;
+          workD = workD.slice(0, cut);
+        }
+      }
+    }
     const reb = takeRebate(workD);
     let gross: number;
     let costLine: string;
@@ -694,6 +816,11 @@ export function parseDetailedNotes(text: string, today = new Date(), soldBatch =
     let rebate = reb.rebate;
     if (reb.pendingPercent != null && gross > 0) rebate += Math.round((gross * reb.pendingPercent) / 100);
     const issues: RowIssue[] = [...reb.issues];
+    if (dates.addedBadDate || dates.soldBadDate) issues.push("bad-date");
+    if (twoPieces) issues.push("two-pieces");
+    // 1.9.0: the P-7 shape — a size equivalence on the line, no cost written
+    // anywhere, and nothing read as a cost: the row lands flagged, not priced.
+    if (gross === 0 && /\d{2}\s*=\s*[0-9]+\.[0-9]{2}/.test(workD) && !/\(\s*\$?\s*[0-9]/.test(workD)) issues.push("no-cost");
     if (rebate > gross && gross > 0) issues.push("uncertain-rebate");
     let costState: CostState = costGift ? "gift" : "";
     if (/\bfull\s*refund/i.test(work)) {
@@ -707,11 +834,11 @@ export function parseDetailedNotes(text: string, today = new Date(), soldBatch =
     }
     const sale = takeSale(costLine);
     const sized = sale.line
-      .replace(/\b(?:sold\s+)?for\s+\$\s*[0-9.\s]+/gi, " ")
-      .replace(/\+\s*\$\s*[0-9.]+\s*delivery/gi, " ")
-      .replace(/\bdelivery\s*\$\s*[0-9.]+/gi, " ")
-      .replace(/\$\s*[0-9.]+\s*off\b/gi, " ")
-      .replace(/\bin\s+\$\s*[0-9.]+/gi, " ");
+      .replace(/\b(?:sold\s+)?for\s+\$\s*[0-9.,\s]+/gi, " ")
+      .replace(/\+\s*\$\s*[0-9.,]+\s*delivery/gi, " ")
+      .replace(/\bdelivery\s*\$\s*[0-9.,]+/gi, " ")
+      .replace(/\$\s*[0-9.,]+\s*off\b/gi, " ")
+      .replace(/\bin\s+\$\s*[0-9.,]+/gi, " ");
     const size = takeSize(sized);
     const extra = noteBits(line);
     const coming = /\bcoming\b/i.test(line) || /💙/.test(line);
@@ -736,7 +863,9 @@ export function parseDetailedNotes(text: string, today = new Date(), soldBatch =
     if (returned) kind = "returned";
     else if (failed) kind = "failed-sale";
     else if (keptLine) kind = "kept";
-    else if (!soldEvidence && !soldBatch && (giftOut || giftMarked)) kind = "gift";
+    // 1.9.0: the explicit gift word outranks the batch answer like returned/failed/kept
+    // already do — an "Already sold" batch used to book revenue for a written GIFT (P-11).
+    else if (!soldEvidence && (giftOut || giftMarked)) kind = "gift";
     else if (soldEvidence || soldBatch) kind = "sale";
     else if (usedLine) kind = "used";
     else kind = "stock";

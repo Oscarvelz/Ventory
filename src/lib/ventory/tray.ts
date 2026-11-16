@@ -63,6 +63,13 @@ export type DupCluster = {
   members: ClusterMember[];
   crossSource: boolean;
   sizeDiffers: boolean;
+  /**
+   * 1.9.0: a cluster is WEAK when not every pair of members is tied directly by the
+   * dated rule (same style + cost + arrival within 3 days) — it was formed by a
+   * chain through a middle piece, or by the undated content fingerprint. Weak
+   * clusters are still asked about, but their pre-answer is "different" (P-15, P-16).
+   */
+  weak: boolean;
 };
 
 export type ReviewGroup = {
@@ -103,7 +110,9 @@ function applyRules(row: DetailedRow, rules: BatchRules): PieceInput {
   if (rules.year) {
     if (input.receivedOn && !row.addedYearWritten) input.receivedOn = withYear(input.receivedOn, rules.year);
     if (input.soldOn && !row.soldYearWritten) input.soldOn = withYear(input.soldOn, rules.year);
-    if (input.receivedOn && input.soldOn && input.soldOn < input.receivedOn) input.soldOn = withYear(input.soldOn, rules.year + 1);
+    // 1.9.0: the chronology bump is a guess about UNWRITTEN years — a sold year he
+    // actually wrote is a fact, and the bump used to rewrite it (2025 → 2027) (P-14).
+    if (input.receivedOn && input.soldOn && input.soldOn < input.receivedOn && !row.soldYearWritten) input.soldOn = withYear(input.soldOn, rules.year + 1);
   }
   if (rules.place && !input.place) input.place = rules.place;
   if (row.kind === "sale" && input.askCents === 0) {
@@ -144,6 +153,8 @@ type Candidate = {
   costCents: number;
   receivedOn: string | null;
   size: string;
+  askCents: number;
+  saleCents: number | null;
 };
 
 function findClusters(rows: TrayRow[], existing: Piece[]): DupCluster[] {
@@ -155,6 +166,8 @@ function findClusters(rows: TrayRow[], existing: Piece[]): DupCluster[] {
       costCents: trayRow.input.costCents,
       receivedOn: trayRow.input.receivedOn,
       size: `${trayRow.input.sizeLabel}|${trayRow.input.usSize}`,
+      askCents: trayRow.input.askCents,
+      saleCents: trayRow.input.saleCents,
     });
   }
   for (const piece of existing) {
@@ -164,10 +177,20 @@ function findClusters(rows: TrayRow[], existing: Piece[]): DupCluster[] {
       costCents: piece.costCents,
       receivedOn: piece.receivedOn,
       size: `${piece.sizeLabel}|${piece.usSize}`,
+      askCents: piece.askCents,
+      saleCents: piece.saleCents,
     });
   }
   // Union-find over "same style + same cost + arrival within 3 days". The size is only a soft
   // signal: Oscar's own documents show the same piece written 44 in one and 43 in the other.
+  // 1.9.0: when either side carries no arrival date, the dated rule cannot speak at all —
+  // the pair is tied instead by a content fingerprint (same style, cost, size, ask and
+  // sale), so an undated document pasted twice is ASKED about instead of silently
+  // duplicated (P-16). Fingerprint and chain-formed clusters are weak: see DupCluster.
+  const datedPair = (a: Candidate, b: Candidate) =>
+    !!a.receivedOn && !!b.receivedOn && daysApart(a.receivedOn, b.receivedOn) <= 3;
+  const fingerPair = (a: Candidate, b: Candidate) =>
+    a.size === b.size && a.askCents === b.askCents && a.saleCents === b.saleCents;
   const parent = candidates.map((_, i) => i);
   const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
   for (let i = 0; i < candidates.length; i++) {
@@ -175,8 +198,9 @@ function findClusters(rows: TrayRow[], existing: Piece[]): DupCluster[] {
       const a = candidates[i];
       const b = candidates[j];
       if (!sameStyle(a.name, b.name) || a.costCents !== b.costCents) continue;
-      if (!a.receivedOn || !b.receivedOn) continue;
-      if (daysApart(a.receivedOn, b.receivedOn) > 3) continue;
+      // The fingerprint speaks only when a date is missing on some side — two dated
+      // pieces far apart stay unclustered, exactly as before.
+      if (!datedPair(a, b) && !((!a.receivedOn || !b.receivedOn) && fingerPair(a, b))) continue;
       parent[find(i)] = find(j);
     }
   }
@@ -189,6 +213,18 @@ function findClusters(rows: TrayRow[], existing: Piece[]): DupCluster[] {
   for (const members of byRoot.values()) {
     if (members.length < 2) continue;
     const sources = new Set(members.map((m) => m.member.source));
+    // Weak when any pair inside is not tied directly by the dated rule: a chain
+    // (A–B and B–C dated, A–C not) used to absorb a piece 4+ days from the floor
+    // record on the strength of its neighbours alone (P-15).
+    let weak = false;
+    for (let i = 0; i < members.length && !weak; i++) {
+      for (let j = i + 1; j < members.length; j++) {
+        if (!datedPair(members[i], members[j])) {
+          weak = true;
+          break;
+        }
+      }
+    }
     clusters.push({
       id: `dup-${clusters.length}`,
       styleName: members[0].name,
@@ -196,6 +232,7 @@ function findClusters(rows: TrayRow[], existing: Piece[]): DupCluster[] {
       members: members.map((m) => m.member),
       crossSource: sources.size > 1,
       sizeDiffers: new Set(members.map((m) => m.size)).size > 1,
+      weak,
     });
   }
   return clusters;
@@ -278,6 +315,31 @@ export function buildTray(parsed: { rows: DetailedRow[]; loose: LooseLine[] }, e
     options: [{ id: "ok", label: "Understood" }],
     defaultOption: "ok",
   });
+  // 1.9.0: the Wave 5 parser flags land as review questions, never silent guesses.
+  addGroup({
+    id: "bad-date",
+    label: "Dates that do not exist (like Feb 30) — the date was left off the piece; fix it on the piece after import, or skip the row",
+    rowIndexes: indexesWhere((row) => row.issues.includes("bad-date")),
+    options: [
+      { id: "keep", label: "Import without that date" },
+      { id: "skip", label: "Skip these rows" },
+    ],
+    defaultOption: "keep",
+  });
+  addGroup({
+    id: "two-pieces",
+    label: "Two pieces written on one line — only the first was read; add the second by hand if it is real",
+    rowIndexes: indexesWhere((row) => row.issues.includes("two-pieces")),
+    options: [{ id: "ok", label: "Understood" }],
+    defaultOption: "ok",
+  });
+  addGroup({
+    id: "no-cost",
+    label: "No cost written — the number after the size was the US size, not a cost; the piece lands with no cost",
+    rowIndexes: indexesWhere((row) => row.issues.includes("no-cost")),
+    options: [{ id: "ok", label: "Understood" }],
+    defaultOption: "ok",
+  });
   const personalIndexes = indexesWhere((row) => !!row.personalNote);
   const loosePersonal = parsed.loose.filter((line) => line.kind === "personal");
   if (personalIndexes.length || loosePersonal.length) {
@@ -338,7 +400,10 @@ export function defaultDecisions(batch: TrayBatch): TrayDecisions {
   // identical pairs separately in his own ledgers, so the default lands each line as its own
   // piece. The card asks either way; only the pre-answer changed. The old blanket "same"
   // silently merged 7 of his 46 on-hand lines into their twins.
-  for (const cluster of batch.clusters) clusters[cluster.id] = cluster.crossSource ? "same" : "different";
+  // 1.9.0: only a DIRECT dated match earns the "same" pre-answer. A chain-formed or
+  // fingerprint cluster (weak) is asked about with "different" pre-answered, so
+  // nothing is absorbed on a neighbour's say-so or on content alone (P-15, P-16).
+  for (const cluster of batch.clusters) clusters[cluster.id] = cluster.crossSource && !cluster.weak ? "same" : "different";
   const include: Record<number, boolean> = {};
   for (const trayRow of batch.rows) include[trayRow.index] = trayRow.light !== "red";
   return { groups, clusters, include };
@@ -380,6 +445,7 @@ export function applyTray(batch: TrayBatch, decisions: TrayDecisions, existing: 
     const row = trayRow.row;
     if (row.kind === "returned" && group("returns") === "skip") continue;
     if (row.issues.includes("bad-arithmetic") && group("bad-arithmetic") === "skip") continue;
+    if (row.issues.includes("bad-date") && group("bad-date") === "skip") continue;
     let input: PieceInput = { ...trayRow.input };
     if ((row.issues.includes("uncertain-rebate") || row.issues.includes("rebate-no-amount")) && group("uncertain-rebate") === "zero") {
       input = { ...input, buyRebateCents: 0 };
