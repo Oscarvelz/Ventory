@@ -27,7 +27,12 @@ function db(): Promise<IDBDatabase> {
         if (!d.objectStoreNames.contains(CPQ)) d.createObjectStore(CPQ, { keyPath: "id" }).createIndex("uid", "uid");
       };
       req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
+      req.onerror = () => {
+        // 1.8.0: a failed open is not cached for the session — the next attempt
+        // (the boot screen's Retry) gets a fresh promise, not the same rejection.
+        dbp = null;
+        reject(req.error);
+      };
     });
   }
   return dbp;

@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { BadgePercent, CalendarDays, Check, CircleAlert, CircleHelp, CircleUserRound, Layers, ListChecks, MapPin, NotebookPen, PackageSearch, Ruler, Scale, Tag, Truck, Undo2 } from "lucide-react";
 import { dollarsToCents, emptyInput, money, type Piece, type PieceInput } from "@/lib/ventory/model";
 import { parseDetailedNotes } from "@/lib/ventory/paste";
@@ -65,11 +65,12 @@ export type TrayPayload = { add: PieceInput[]; update: PieceInput[]; batchNotes:
  * (a return counted as a sale, a rebate decided without asking, a duplicate counted twice)
  * is exactly what the tray puts in front of him, in groups, before a single row lands.
  */
-export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
+export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChange }: {
   pieces: Piece[];
-  onApply: (payload: TrayPayload) => void;
-  onImportCsv?: (rows: PieceInput[]) => void;
+  onApply: (payload: TrayPayload) => Promise<{ added: number; updated: number }>;
+  onImportCsv?: (rows: PieceInput[]) => Promise<number>;
   onClose: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [text, setText] = useState("");
   const [soldBatch, setSoldBatch] = useState(false);
@@ -79,8 +80,18 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
   const [place, setPlace] = useState<"" | "home" | "car">("");
   const [usualAsk, setUsualAsk] = useState<Record<string, string>>({});
   const [decisions, setDecisions] = useState<TrayDecisions | null>(null);
-  const [applied, setApplied] = useState<TrayPayload | null>(null);
+  // 1.8.0: success is a RESULT, not a hope — the applied counts come back from the
+  // write itself, and a failed write lands on applyError instead of this screen.
+  const [appliedResult, setAppliedResult] = useState<{ added: number; updated: number; notes: string[] } | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState(false);
   const [csvDone, setCsvDone] = useState(0);
+
+  // The Editor's discard guard watches the tray through this: unimported text is
+  // unsaved work; a completed import is not (1.8.0, G-6).
+  useEffect(() => {
+    onDirtyChange?.(Boolean(text.trim()) && !appliedResult && !csvDone);
+  }, [text, appliedResult, csvDone, onDirtyChange]);
 
   const rules: BatchRules = useMemo(() => {
     const usual: Record<string, number> = {};
@@ -98,7 +109,7 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
   const review = () => {
     const next = parseDetailedNotes(text, new Date(), soldBatch);
     setParsed(next);
-    setApplied(null);
+    setAppliedResult(null); setApplyError(false);
     setDecisions(defaultDecisions(buildTray(next, pieces, rules)));
   };
 
@@ -111,7 +122,7 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
     if (!parsed || !text.trim()) return;
     const reparsed = parseDetailedNotes(text, new Date(), next);
     setParsed(reparsed);
-    setApplied(null);
+    setAppliedResult(null); setApplyError(false);
     setDecisions(defaultDecisions(buildTray(reparsed, pieces, rules)));
   };
 
@@ -146,8 +157,8 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
   const seg = (active: boolean) => `press flex min-h-11 items-center justify-center rounded-xl border px-2 py-2 text-center text-[13px] leading-snug ${active ? "border-accent bg-accent-soft font-medium text-ink" : "border-line text-muted"}`;
   const lightDot = { green: "#3d9970", amber: "#d9930d", red: "#c0392b" } as const;
 
-  if (applied || csvDone) {
-    const notes = applied?.batchNotes ?? [];
+  if (appliedResult || csvDone) {
+    const notes = appliedResult?.notes ?? [];
     return (
       <div className="mt-4">
         <div className="flex items-center gap-3">
@@ -157,7 +168,7 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
         <p className="mt-3 text-sm text-muted">
           {csvDone
             ? `${csvDone} rows imported from the spreadsheet paste.`
-            : `${applied!.add.length} new ${applied!.add.length === 1 ? "piece" : "pieces"} imported${applied!.update.length ? `, and ${applied!.update.length} already on the floor were completed instead of duplicated` : ""}.`}
+            : `${appliedResult!.added} new ${appliedResult!.added === 1 ? "piece" : "pieces"} imported${appliedResult!.updated ? `, and ${appliedResult!.updated} already on the floor were completed instead of duplicated` : ""}.`}
         </p>
         {notes.length ? (
           <div className="mt-4 rounded-2xl border border-line bg-panel p-4">
@@ -203,12 +214,19 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
         {parsed && parsed.rows.length === 0 && onImportCsv ? (
           <button
             type="button"
-            className="press h-11 rounded-full border border-line px-4 text-sm"
-            onClick={() => {
+            className="press h-11 rounded-full border border-line px-4 text-sm disabled:opacity-40"
+            disabled={applying}
+            onClick={async () => {
               const rows = csvRows();
-              if (rows.length) {
-                onImportCsv(rows);
-                setCsvDone(rows.length);
+              if (!rows.length || applying) return;
+              setApplying(true);
+              setApplyError(false);
+              try {
+                setCsvDone(await onImportCsv(rows));
+              } catch {
+                setApplyError(true);
+              } finally {
+                setApplying(false);
               }
             }}
           >
@@ -216,6 +234,7 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
           </button>
         ) : null}
       </div>
+      {applyError && !batch ? <p className="mt-2 text-sm text-danger">The import didn't go through — nothing was added. Try again.</p> : null}
 
       {batch && decisions ? (
         <>
@@ -454,14 +473,24 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose }: {
               <button
                 type="button"
                 className="press h-12 w-full rounded-full bg-accent text-sm font-medium text-accent-ink disabled:opacity-40"
-                disabled={!preview.add.length && !preview.update.length}
-                onClick={() => {
-                  onApply(preview);
-                  setApplied(preview);
+                disabled={applying || (!preview.add.length && !preview.update.length)}
+                onClick={async () => {
+                  if (applying) return;
+                  setApplying(true);
+                  setApplyError(false);
+                  try {
+                    const res = await onApply(preview);
+                    setAppliedResult({ added: res.added, updated: res.updated, notes: preview.batchNotes ?? [] });
+                  } catch {
+                    setApplyError(true);
+                  } finally {
+                    setApplying(false);
+                  }
                 }}
               >
-                Import {preview.add.length} {preview.add.length === 1 ? "piece" : "pieces"}{preview.update.length ? ` · complete ${preview.update.length} on the floor` : ""}
+                {applying ? "Importing…" : `Import ${preview.add.length} ${preview.add.length === 1 ? "piece" : "pieces"}${preview.update.length ? ` · complete ${preview.update.length} on the floor` : ""}`}
               </button>
+              {applyError ? <p className="px-1 pt-2 text-sm text-danger">The import didn't go through — nothing was added. Try again.</p> : null}
             </div>
           ) : null}
         </>

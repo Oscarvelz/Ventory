@@ -249,35 +249,45 @@ export async function saveAds({ data }: { data: boolean }) {
 }
 
 export async function importPieces({ data: raw }: { data: PieceInput[] }) {
-  const rows = (Array.isArray(raw) ? raw.slice(0, 400).map(clean) : []).filter((p) => p.name);
+  // 1.8.0: no silent cap. The batch the owner approved is the batch that lands —
+  // written in chunks of 400 so no single transaction grows without bound — and
+  // the count returned is the count written, so the success line certifies the
+  // write, not the request. (Before: slice(0, 400) dropped every approved row
+  // past 400 while the screen still announced them all.)
+  const rows = (Array.isArray(raw) ? raw.map(clean) : []).filter((p) => p.name);
   let sort = nextSort();
-  await store.write(rows.map((p) => {
+  const items = rows.map((p) => {
     const id = crypto.randomUUID();
     return { kind: "piece" as const, id, data: pieceData(id, p, sort++) };
-  }));
-  return readPieces();
+  });
+  for (let i = 0; i < items.length; i += 400) await store.write(items.slice(i, i + 400));
+  return { pieces: readPieces(), imported: items.length };
 }
 
 /**
  * The tray's apply step (1.0.16): new pieces are added, and pieces the tray recognised as
  * already on the floor are COMPLETED in place (same id, same sort) instead of duplicated.
+ * 1.8.0: no silent 400 cap on either side, and the returned counts are what the
+ * write actually carried — the tray's success screen prints these, never the preview.
  */
 export async function applyTrayImport({ data }: { data: { add: PieceInput[]; update: PieceInput[] } }) {
-  const adds = (Array.isArray(data.add) ? data.add.slice(0, 400).map(clean) : []).filter((p) => p.name);
+  const adds = (Array.isArray(data.add) ? data.add.map(clean) : []).filter((p) => p.name);
   let sort = nextSort();
   const items: { kind: "piece"; id: string; data: Record<string, unknown> }[] = adds.map((p) => {
     const id = crypto.randomUUID();
     return { kind: "piece" as const, id, data: pieceData(id, p, sort++) };
   });
-  for (const raw of Array.isArray(data.update) ? data.update.slice(0, 400) : []) {
+  let updated = 0;
+  for (const raw of Array.isArray(data.update) ? data.update : []) {
     if (!raw.id || !store.get("piece", raw.id)) continue;
     const cleaned = clean(raw);
     if (!cleaned.name) continue;
     const existingSort = Number(store.get("piece", raw.id)?.data.sort) || 0;
     items.push({ kind: "piece" as const, id: raw.id, data: pieceData(raw.id, cleaned, existingSort) });
+    updated += 1;
   }
-  if (items.length) await store.write(items);
-  return readPieces();
+  for (let i = 0; i < items.length; i += 400) await store.write(items.slice(i, i + 400));
+  return { pieces: readPieces(), added: adds.length, updated };
 }
 
 type RestoreItem = { kind: "piece" | "ad" | "mark"; id: string; data?: Record<string, unknown>; deleted?: boolean };

@@ -29,12 +29,23 @@ function Boot() {
 
 function Floor({ uid }: { uid: string }) {
   const [ready, setReady] = useState(false);
+  // 1.8.0: a floor that cannot be opened says so — before, the failure was
+  // swallowed and the app rendered a pristine EMPTY floor in its place, which
+  // reads as "everything is gone" when it only means "the store didn't open".
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let live = true;
     setReady(false);
+    setFailed(false);
     void (async () => {
       try {
         await openFloor(uid);
+      } catch {
+        if (live) setFailed(true);
+        return;
+      }
+      try {
         // A device that has never synced this account waits (briefly) for the floor from the cloud, so it opens full.
         const fresh = !localStorage.getItem(`ventory.synced.${uid}`);
         if (uid !== "local") {
@@ -49,11 +60,23 @@ function Floor({ uid }: { uid: string }) {
     return () => {
       live = false;
     };
-  }, [uid]);
+  }, [uid, attempt]);
   // Launch splash (1.1.3): the floor is the first real screen — hand off once it is drawn.
   useEffect(() => {
-    if (ready) markShellReady();
-  }, [ready]);
+    if (ready || failed) markShellReady();
+  }, [ready, failed]);
+  if (failed)
+    return (
+      <main className="grid min-h-dvh place-items-center px-6">
+        <div className="max-w-sm text-center">
+          <p className="font-display text-2xl text-ink">Your floor couldn't be opened on this device</p>
+          <p className="mt-2 text-sm text-muted">Nothing was changed or lost — the stored floor just didn't open this time. Try again.</p>
+          <button type="button" className="press mt-5 h-11 rounded-full bg-accent px-5 text-sm font-medium text-accent-ink" onClick={() => setAttempt((n) => n + 1)}>
+            Retry
+          </button>
+        </div>
+      </main>
+    );
   if (!ready) return <Boot />;
   return <House key={uid} />;
 }

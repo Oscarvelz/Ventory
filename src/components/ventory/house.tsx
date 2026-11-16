@@ -507,7 +507,13 @@ export function House() {
 
   const brief = useMemo(() => buildAdvice(pieces, adsOn ? ads : []), [pieces, ads, adsOn]);
 
+  const savingRef = useRef(false);
   async function onSave(input: PieceInput) {
+    // 1.8.0: one tap, one piece — a second Save while the first is still writing
+    // used to mint a second copy of a new piece (both calls carried no id yet).
+    if (savingRef.current) return;
+    savingRef.current = true;
+    try {
     const saved = await savePiece({ data: input });
     if (!saved) return;
     setPieces((current) => {
@@ -524,6 +530,9 @@ export function House() {
     if (saved.status === "kept") return;
     setView("floor");
     setChip(saved.status === "available" || saved.status === "incoming" ? "live" : saved.status);
+    } finally {
+      savingRef.current = false;
+    }
   }
 
   function requestStatus(piece: Piece, status: Status) {
@@ -595,7 +604,10 @@ export function House() {
     const previous = undo.previous;
     const next: Piece =
       undo.what === "Sold"
-        ? { ...previous, status: "available", saleCents: null, soldOn: null, wasSold: false }
+        ? // 1.8.0: Reverse restores the status the piece actually had before the sale —
+          // an incoming piece comes back Incoming. (Before, every reversed sale landed
+          // Available, quietly promoting pieces that had never arrived.)
+          { ...previous, status: previous.status, saleCents: null, soldOn: null, wasSold: false }
         : previous;
     void savePiece({ data: next }).then((saved) => {
       if (!saved) return;
@@ -797,17 +809,27 @@ export function House() {
             </div>
           ) : null}
           {phase === "ready" && visible.length === 0 ? (
-            <div className="mt-6 rounded-3xl border border-line bg-panel px-6 py-8">
-              <p className="font-display text-3xl">Nothing on this shelf</p>
-              <p className="mt-2 max-w-sm text-sm text-muted">Incoming and available stay here. Sold and archive live in History.</p>
-              <button
-                type="button"
-                className="press mt-5 h-11 rounded-full border border-line px-4 text-sm"
-                onClick={loadSampleFloor}
-              >
-                Load a sample floor
-              </button>
-            </div>
+            pieces.length > 0 && (query.trim().length > 0 || kind !== "all" || chip !== "live" || lens !== null) ? (
+              // 1.8.0: a filtered-empty view says so — before, a search that matched
+              // nothing declared "Nothing on this shelf" and offered to load the
+              // sample floor onto a floor that was not empty at all (G-5).
+              <div className="mt-6 rounded-3xl border border-line bg-panel px-6 py-8">
+                <p className="font-display text-3xl">{query.trim() ? `No pieces match “${query.trim()}”` : "No pieces match these filters"}</p>
+                <p className="mt-2 max-w-sm text-sm text-muted">The floor is not empty — this view is hiding everything on it.</p>
+              </div>
+            ) : (
+              <div className="mt-6 rounded-3xl border border-line bg-panel px-6 py-8">
+                <p className="font-display text-3xl">Nothing on this shelf</p>
+                <p className="mt-2 max-w-sm text-sm text-muted">Incoming and available stay here. Sold and archive live in History.</p>
+                <button
+                  type="button"
+                  className="press mt-5 h-11 rounded-full border border-line px-4 text-sm"
+                  onClick={loadSampleFloor}
+                >
+                  Load a sample floor
+                </button>
+              </div>
+            )
           ) : null}
           <div className="mt-4 space-y-3">
             {groups.map((group) => {
@@ -917,12 +939,21 @@ export function House() {
           <div className={past === "sold" && soldLines.some((row) => product === "all" || row.name.toLowerCase() === product) ? "lg:grid lg:grid-cols-2 lg:items-start lg:gap-4" : undefined}>
           {past === "sold" && soldLines.some((row) => product === "all" || row.name.toLowerCase() === product) ? <SalesBoard title="By product" rows={soldLines.filter((row) => product === "all" || row.name.toLowerCase() === product)} /> : null}
           {history.length === 0 ? (
+            query.trim() ? (
+              // 1.8.0: the shared search can empty History too — say that, instead of
+              // "Nothing sold yet" printed directly under a SOLD chip counting sales (G-5).
+              <div className="mt-6 rounded-3xl border border-line bg-panel px-6 py-8">
+                <p className="font-display text-3xl">No pieces match “{query.trim()}”</p>
+                <p className="mt-2 max-w-sm text-sm text-muted">History is not empty — the search is hiding everything in it.</p>
+              </div>
+            ) : (
             <div className="mt-6 rounded-3xl border border-line bg-panel px-6 py-8">
               <p className="font-display text-3xl">{past === "sold" ? (product === "all" ? "Nothing sold yet" : "Nothing under this product") : "Nothing archived"}</p>
               <p className="mt-2 max-w-sm text-sm text-muted">
                 {past === "sold" ? "Mark a piece sold and it lands here, with its price and its dates." : "Retire a piece and it stays here. Its sale still counts in Statistics."}
               </p>
             </div>
+            )
           ) : (
             <ul key={`${past}-${layout}`} className={listClass}>
               {history.map((piece) => (
@@ -1040,26 +1071,26 @@ export function House() {
           onImport={
             editor.id
               ? undefined
-              : (rows) => {
-                  void importPieces({ data: rows }).then((next) => {
-                    setPieces(next);
-                    setNotice(`Imported ${rows.length} rows`);
-                    if (rows.every((row) => row.status === "archived")) setChip("archived");
-                    setEditor(null);
-                    setEditorFocus(null);
-                    setView("floor");
-                  });
+              : async (rows) => {
+                  // 1.8.0: the tray awaits this — its success screen certifies the count
+                  // the write returned, and a failed write shows as a failure there.
+                  const res = await importPieces({ data: rows });
+                  setPieces(res.pieces);
+                  setNotice(`Imported ${res.imported} rows`);
+                  if (rows.every((row) => row.status === "archived")) setChip("archived");
+                  setView("floor");
+                  return res.imported;
                 }
           }
           onTray={
             editor.id
               ? undefined
-              : (payload) => {
-                  void applyTrayImport({ data: { add: payload.add, update: payload.update } }).then((next) => {
-                    setPieces(next);
-                    setNotice(`Imported ${payload.add.length} ${payload.add.length === 1 ? "piece" : "pieces"}${payload.update.length ? ` · completed ${payload.update.length} already on the floor` : ""}`);
-                    setView("floor");
-                  });
+              : async (payload) => {
+                  const res = await applyTrayImport({ data: { add: payload.add, update: payload.update } });
+                  setPieces(res.pieces);
+                  setNotice(`Imported ${res.added} ${res.added === 1 ? "piece" : "pieces"}${res.updated ? ` · completed ${res.updated} already on the floor` : ""}`);
+                  setView("floor");
+                  return { added: res.added, updated: res.updated };
                 }
           }
         />
@@ -1107,7 +1138,7 @@ export function House() {
 
       {undoOpen && undo ? (
         <Overlay onClose={() => setUndoOpen(false)}>
-          <p className="font-display text-2xl">{undo.what === "Delete" ? `Add ${undo.name} back?` : undo.what === "Remove" ? `Put ${undo.name} back?` : `Put ${undo.name} back as Available?`}</p>
+          <p className="font-display text-2xl">{undo.what === "Delete" ? `Add ${undo.name} back?` : undo.what === "Remove" ? `Put ${undo.name} back?` : `Put ${undo.name} back as ${undo.previous.status === "incoming" ? "Incoming" : "Available"}?`}</p>
           <p className="mt-2 text-sm text-muted">{undo.what === "Delete" ? "It returns as it was before you deleted it." : undo.what === "Remove" ? "It returns as it was before you removed it." : "The sale comes off."}</p>
           <div className="mt-5 flex gap-2">
             <button type="button" className="press h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-ink" onClick={commitUndo}>{undo.what === "Delete" ? "Add it back" : "Put it back"}</button>
@@ -2439,17 +2470,19 @@ function Overlay({ children, onClose }: { children: ReactNode; onClose: () => vo
   );
 }
 
-function Editor({ initial, known = [], focus = null, onClose, onSave, onImport, onTray }: { initial: PieceInput; known?: Piece[]; focus?: AdviceFocus | null; onClose: () => void; onSave: (input: PieceInput) => void; onImport?: (rows: PieceInput[]) => void; onTray?: (payload: TrayPayload) => void }) {
+function Editor({ initial, known = [], focus = null, onClose, onSave, onImport, onTray }: { initial: PieceInput; known?: Piece[]; focus?: AdviceFocus | null; onClose: () => void; onSave: (input: PieceInput) => void; onImport?: (rows: PieceInput[]) => Promise<number>; onTray?: (payload: TrayPayload) => Promise<{ added: number; updated: number }> }) {
   const [draft, setDraft] = useState(initial);
   const [batch, setBatch] = useState(false);
   const [convertNote, setConvertNote] = useState("");
   const [discardAsk, setDiscardAsk] = useState(false);
+  const [trayDirty, setTrayDirty] = useState(false);
   const set = (patch: Partial<PieceInput>) => setDraft((current) => ({ ...current, ...patch }));
   // Closing with unsaved edits asks first; closing clean stays one tap (button audit V-3).
-  // The batch tray keeps its own state and closes as before.
+  // 1.8.0: the guard covers the batch tray too — it holds the largest unsaved text in
+  // the app, and a veil tap used to abandon a reviewed batch without a word (G-6).
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
   const tryClose = () => {
-    if (!batch && dirty) setDiscardAsk(true);
+    if (batch ? trayDirty : dirty) setDiscardAsk(true);
     else onClose();
   };
   useEffect(() => {
@@ -2480,7 +2513,7 @@ function Editor({ initial, known = [], focus = null, onClose, onSave, onImport, 
         ) : null}
       </div>
       {batch && onTray ? (
-        <TrayImport pieces={known} onApply={onTray} onImportCsv={onImport} onClose={onClose} />
+        <TrayImport pieces={known} onApply={onTray} onImportCsv={onImport} onClose={onClose} onDirtyChange={setTrayDirty} />
       ) : (
       <form
         className="mt-4 grid gap-3"

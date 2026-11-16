@@ -1,5 +1,5 @@
 // Ventory service worker: the app opens with no internet. Bump VERSION on every release.
-const VERSION = "ventory-1.7.0";
+const VERSION = "ventory-1.8.0";
 const CORE = ["./", "./index.html", "./manifest.webmanifest", "./favicon.svg", "./icon-192.png", "./icon-512.png", "./precache.json"];
 
 self.addEventListener("install", (event) => {
@@ -39,6 +39,10 @@ self.addEventListener("fetch", (event) => {
     event.respondWith((async () => {
       try {
         const res = await fetch(req);
+        // 1.8.0: only a good response is served or cached as the shell. An error
+        // page (a 404/500 from the host) used to be returned AND stored as
+        // index.html, so one bad response became the app's permanent face.
+        if (!res.ok) return (await caches.match("./index.html")) || (await caches.match("./")) || res;
         const cache = await caches.open(VERSION);
         cache.put("./index.html", res.clone());
         return res;
