@@ -4,6 +4,7 @@ import { dollarsToCents, emptyInput, money, type Piece, type PieceInput } from "
 import { parseDetailedNotes } from "@/lib/ventory/paste";
 import { applyTray, buildTray, defaultDecisions, defaultRules, styleKey, type BatchRules, type TrayDecisions } from "@/lib/ventory/tray";
 import { tone as litTone, toneInk } from "@/lib/ventory/tones";
+import { tx, type Lang } from "@/lib/ventory/i18n";
 
 /* The review's architecture (1.3.0): the tray used to read as one long scroll of prose —
    Oscar's word: boring text, no design. Now it has chapters with kickers, a count band
@@ -47,13 +48,13 @@ const GROUP_STYLE: Record<string, { tone: string; icon: typeof CircleAlert }> = 
 };
 
 const CLASS_TONE: Record<string, string> = {
-  Sale: "#5f8f72",
-  Stock: "#5d86ad",
-  Gift: "#8d6aad",
-  Returned: "#a33b32",
-  Used: "#b08a3e",
-  Kept: "#4f7f8a",
-  "Failed sale": "#a33b32",
+  sale: "#5f8f72",
+  stock: "#5d86ad",
+  gift: "#8d6aad",
+  returned: "#a33b32",
+  used: "#b08a3e",
+  kept: "#4f7f8a",
+  "failed-sale": "#a33b32",
 };
 
 export type TrayPayload = { add: PieceInput[]; update: PieceInput[]; batchNotes: string[] };
@@ -65,8 +66,9 @@ export type TrayPayload = { add: PieceInput[]; update: PieceInput[]; batchNotes:
  * (a return counted as a sale, a rebate decided without asking, a duplicate counted twice)
  * is exactly what the tray puts in front of him, in groups, before a single row lands.
  */
-export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChange }: {
+export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChange, lang = "en" }: {
   pieces: Piece[];
+  lang?: Lang;
   onApply: (payload: TrayPayload) => Promise<{ added: number; updated: number }>;
   onImportCsv?: (rows: PieceInput[]) => Promise<number>;
   onClose: () => void;
@@ -103,14 +105,14 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChang
     return { ...defaultRules(), bareSize, year: Number.isInteger(yearNum) && yearNum > 1900 ? yearNum : null, place, usualAsk: usual };
   }, [bareSize, year, place, usualAsk]);
 
-  const batch = useMemo(() => (parsed ? buildTray(parsed, pieces, rules) : null), [parsed, pieces, rules]);
+  const batch = useMemo(() => (parsed ? buildTray(parsed, pieces, rules, lang) : null), [parsed, pieces, rules, lang]);
   const preview = useMemo(() => (batch && decisions ? applyTray(batch, decisions, pieces) : null), [batch, decisions, pieces]);
 
   const review = () => {
     const next = parseDetailedNotes(text, new Date(), soldBatch);
     setParsed(next);
     setAppliedResult(null); setApplyError(false);
-    setDecisions(defaultDecisions(buildTray(next, pieces, rules)));
+    setDecisions(defaultDecisions(buildTray(next, pieces, rules, lang)));
   };
 
   // The batch's own answer — products on hand, or a batch of pieces already sold — is read
@@ -123,7 +125,7 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChang
     const reparsed = parseDetailedNotes(text, new Date(), next);
     setParsed(reparsed);
     setAppliedResult(null); setApplyError(false);
-    setDecisions(defaultDecisions(buildTray(reparsed, pieces, rules)));
+    setDecisions(defaultDecisions(buildTray(reparsed, pieces, rules, lang)));
   };
 
   const csvRows = (): PieceInput[] => {
@@ -163,23 +165,25 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChang
       <div className="mt-4">
         <div className="flex items-center gap-3">
           <span className="grid size-11 place-items-center rounded-full bg-accent-soft"><Check className="size-5" strokeWidth={2} /></span>
-          <p className="font-display text-2xl">Batch in</p>
+          <p className="font-display text-2xl">{tx(lang, "tray.batchIn")}</p>
         </div>
         <p className="mt-3 text-sm text-muted">
           {csvDone
-            ? `${csvDone} rows imported from the spreadsheet paste.`
-            : `${appliedResult!.added} new ${appliedResult!.added === 1 ? "piece" : "pieces"} imported${appliedResult!.updated ? `, and ${appliedResult!.updated} already on the floor were completed instead of duplicated` : ""}.`}
+            ? tx(lang, "tray.csvDone", { n: csvDone })
+            : lang === "es"
+              ? `${appliedResult!.added} ${appliedResult!.added === 1 ? "pieza nueva importada" : "piezas nuevas importadas"}${appliedResult!.updated ? `, y ${appliedResult!.updated} que ya estaban en el inventario se completaron en vez de duplicarse` : ""}.`
+              : `${appliedResult!.added} new ${appliedResult!.added === 1 ? "piece" : "pieces"} imported${appliedResult!.updated ? `, and ${appliedResult!.updated} already on the floor were completed instead of duplicated` : ""}.`}
         </p>
         {notes.length ? (
           <div className="mt-4 rounded-2xl border border-line bg-panel p-4">
-            <p className="text-sm font-medium">Batch notes</p>
-            <p className="mt-1 text-xs text-muted">Kept with the batch, as you wrote them. They are not attached to any piece and never touched a number.</p>
+            <p className="text-sm font-medium">{tx(lang, "tray.batchNotes")}</p>
+            <p className="mt-1 text-xs text-muted">{tx(lang, "tray.batchNotesSub")}</p>
             <ul className="mt-2 space-y-1">
               {notes.map((note, i) => <li key={i} className="text-sm">{note}</li>)}
             </ul>
           </div>
         ) : null}
-        <button type="button" className="press mt-5 h-11 rounded-full bg-accent px-5 text-sm font-medium text-accent-ink" onClick={onClose}>Done</button>
+        <button type="button" className="press mt-5 h-11 rounded-full bg-accent px-5 text-sm font-medium text-accent-ink" onClick={onClose}>{tx(lang, "common.done")}</button>
       </div>
     );
   }
@@ -187,29 +191,29 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChang
   return (
     <div className="mt-4">
       <p className="text-sm text-muted">
-        Paste the note as you write it — a whole document is fine. Nothing is imported yet: the tray reads it line by line, shows you how each line lands, and only imports what you approve.
+        {tx(lang, "tray.intro")}
       </p>
       <textarea
         value={text}
         onChange={(event) => { setText(event.target.value); setParsed(null); setDecisions(null); }}
         className="mt-3 h-40 w-full rounded-2xl border border-line bg-canvas p-3 text-sm outline-none focus:border-accent"
-        placeholder={"Paste the whole batch note here. Ventory reads it line by line — size, cost, place and price — and shows you how each line lands before you import."}
+        placeholder={tx(lang, "tray.placeholder")}
       />
       {/* The entrada/salida question, asked up front (1.2.6): products he has, or products he
           already sold. The same answer lives in the review's rules card, where flipping it
           re-reads the note. */}
       <div className="mt-4 rounded-2xl border border-line bg-panel p-4">
-        <p className="text-sm font-medium">Products you have, or already sold?</p>
+        <p className="text-sm font-medium">{tx(lang, "tray.haveOrSold")}</p>
         <div className="mt-2 flex gap-2">
-          {([[false, "On hand"], [true, "Already sold"]] as const).map(([value, label]) => (
+          {([[false, tx(lang, "tray.onHand")], [true, tx(lang, "tray.alreadySold")]] as const).map(([value, label]) => (
             <button key={label} type="button" aria-pressed={soldBatch === value} className={chip(soldBatch === value)} onClick={() => reclassify(value)}>{label}</button>
           ))}
         </div>
-        <p className="mt-2 text-xs text-muted">On hand lands on the floor. Already sold lands in the archive and counts in your numbers. A line with a sold date (SoldJun3) always counts as sold — a bare "- Sold" with no date follows this answer.</p>
+        <p className="mt-2 text-xs text-muted">{tx(lang, "tray.haveOrSoldNote")}</p>
       </div>
       <div className="mt-3 flex gap-2">
         <button type="button" className="press h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-ink" disabled={!text.trim()} onClick={review}>
-          Review the batch
+          {tx(lang, "tray.reviewBatch")}
         </button>
         {parsed && parsed.rows.length === 0 && onImportCsv ? (
           <button
@@ -230,15 +234,15 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChang
               }
             }}
           >
-            Import as spreadsheet rows
+            {tx(lang, "tray.importCsv")}
           </button>
         ) : null}
       </div>
-      {applyError && !batch ? <p className="mt-2 text-sm text-danger">The import didn't go through — nothing was added. Try again.</p> : null}
+      {applyError && !batch ? <p className="mt-2 text-sm text-danger">{tx(lang, "tray.importFailed")}</p> : null}
 
       {batch && decisions ? (
         <>
-          <Kicker>The count</Kicker>
+          <Kicker>{tx(lang, "tray.theCount")}</Kicker>
           <div
             className="rounded-2xl border px-4 py-3"
             style={{
@@ -248,35 +252,35 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChang
           >
             <div className="grid grid-cols-3 gap-3">
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold tracking-[0.14em] uppercase" style={{ color: `color-mix(in srgb, ${litTone("#5f8f72")} 75%, var(--v-ink))` }}>In</p>
+                <p className="text-[10px] font-semibold tracking-[0.14em] uppercase" style={{ color: `color-mix(in srgb, ${litTone("#5f8f72")} 75%, var(--v-ink))` }}>{tx(lang, "board.in")}</p>
                 <p className="mt-0.5 truncate font-display text-xl leading-none tabular-nums">{money(batch.totals.revenue)}</p>
-                <p className="mt-1 truncate text-[11px] text-muted">{batch.totals.sales} sales · {batch.totals.salesDated} dated</p>
+                <p className="mt-1 text-[11px] leading-snug text-muted">{lang === "es" ? `${batch.totals.sales} ventas · ${batch.totals.salesDated} con fecha` : `${batch.totals.sales} sales · ${batch.totals.salesDated} dated`}</p>
               </div>
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold tracking-[0.14em] text-muted uppercase">Stock cost</p>
+                <p className="text-[10px] font-semibold tracking-[0.14em] text-muted uppercase">{tx(lang, "tray.stockCost")}</p>
                 <p className="mt-0.5 truncate font-display text-xl leading-none tabular-nums">{money(batch.totals.stockCost)}</p>
               </div>
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold tracking-[0.14em] text-muted uppercase">Lines</p>
+                <p className="text-[10px] font-semibold tracking-[0.14em] text-muted uppercase">{tx(lang, "tray.linesWord")}</p>
                 <p className="mt-0.5 truncate font-display text-xl leading-none tabular-nums">{batch.totals.rows}</p>
               </div>
             </div>
             <p className="mt-2 border-t border-line/50 pt-2 text-[11px] text-muted">
-              rebates {money(batch.totals.rebates)} · delivery {money(batch.totals.delivery)} · {batch.totals.salesNoPrice} sales with no price
-              {batch.loose.length ? ` · ${batch.loose.length} loose ${batch.loose.length === 1 ? "line" : "lines"}, not pieces` : ""}
+              {tx(lang, "tray.rebatesWord")} {money(batch.totals.rebates)} · {tx(lang, "tray.deliveryWord")} {money(batch.totals.delivery)} · {lang === "es" ? `${batch.totals.salesNoPrice} ventas sin precio` : `${batch.totals.salesNoPrice} sales with no price`}
+              {batch.loose.length ? (lang === "es" ? ` · ${batch.loose.length} ${batch.loose.length === 1 ? "línea suelta" : "líneas sueltas"}, no piezas` : ` · ${batch.loose.length} loose ${batch.loose.length === 1 ? "line" : "lines"}, not pieces`) : ""}
             </p>
           </div>
 
-          <Kicker>Batch rules — asked once</Kicker>
+          <Kicker>{tx(lang, "tray.batchRules")}</Kicker>
           <div className="rounded-2xl border border-line bg-panel p-4">
             <div className="grid gap-4">
               <div className="flex min-w-0 gap-3">
                 <JewelDisc tone="#5f8f72"><Layers className="size-4" strokeWidth={1.75} /></JewelDisc>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">This batch is {soldBatch ? "already sold" : "on hand"}</p>
-                  <p className="mt-0.5 text-xs text-muted">Flipping re-reads the whole note.</p>
+                  <p className="text-sm font-medium">{lang === "es" ? `Este lote está ${soldBatch ? "ya vendido" : "en inventario"}` : `This batch is ${soldBatch ? "already sold" : "on hand"}`}</p>
+                  <p className="mt-0.5 text-xs text-muted">{tx(lang, "tray.flipNote")}</p>
                   <div className="mt-2 flex gap-2">
-                    {([[false, "On hand"], [true, "Already sold"]] as const).map(([value, label]) => (
+                    {([[false, tx(lang, "tray.onHand")], [true, tx(lang, "tray.alreadySold")]] as const).map(([value, label]) => (
                       <button key={label} type="button" aria-pressed={soldBatch === value} className={chip(soldBatch === value)} onClick={() => reclassify(value)}>{label}</button>
                     ))}
                   </div>
@@ -285,8 +289,8 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChang
               <div className="flex min-w-0 gap-3">
                 <JewelDisc tone="#5d86ad"><Ruler className="size-4" strokeWidth={1.75} /></JewelDisc>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">Bare sizes read as {bareSize}</p>
-                  <p className="mt-0.5 text-xs text-muted">When a line writes no EU or CN.</p>
+                  <p className="text-sm font-medium">{tx(lang, "tray.bareSizes", { system: bareSize })}</p>
+                  <p className="mt-0.5 text-xs text-muted">{tx(lang, "tray.bareSizesSub")}</p>
                   <div className="mt-2 flex gap-2">
                     {(["CN", "EU"] as const).map((system) => (
                       <button key={system} type="button" aria-pressed={bareSize === system} className={chip(bareSize === system)} onClick={() => setBareSize(system)}>{system}</button>
@@ -297,18 +301,18 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChang
               <div className="flex min-w-0 gap-3">
                 <JewelDisc tone="#b08a3e"><CalendarDays className="size-4" strokeWidth={1.75} /></JewelDisc>
                 <label className="block min-w-0 flex-1 text-sm">
-                  <span className="font-medium">Batch year</span>
-                  <span className="mt-0.5 block text-xs text-muted">When a date has none</span>
-                  <input value={year} onChange={(event) => setYear(event.target.value)} inputMode="numeric" placeholder="Optional" className={`mt-2 ${control}`} />
+                  <span className="font-medium">{tx(lang, "tray.batchYear")}</span>
+                  <span className="mt-0.5 block text-xs text-muted">{tx(lang, "tray.batchYearSub")}</span>
+                  <input value={year} onChange={(event) => setYear(event.target.value)} inputMode="numeric" placeholder={tx(lang, "tray.optional")} className={`mt-2 ${control}`} />
                 </label>
               </div>
               <div className="flex min-w-0 gap-3">
                 <JewelDisc tone="#4f7f8a"><MapPin className="size-4" strokeWidth={1.75} /></JewelDisc>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">Where</p>
-                  <p className="mt-0.5 text-xs text-muted">When a line doesn't say</p>
+                  <p className="text-sm font-medium">{tx(lang, "tray.where")}</p>
+                  <p className="mt-0.5 text-xs text-muted">{tx(lang, "tray.whereSub")}</p>
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {([["", "Anywhere"], ["home", "Home"], ["car", "Car"]] as const).map(([value, label]) => (
+                    {([["", tx(lang, "tray.anywhere")], ["home", tx(lang, "tray.home")], ["car", tx(lang, "tray.car")]] as const).map(([value, label]) => (
                       <button key={label} type="button" aria-pressed={place === value} className={chip(place === value)} onClick={() => setPlace(value)}>{label}</button>
                     ))}
                   </div>
@@ -318,8 +322,8 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChang
                 <div className="flex min-w-0 gap-3">
                   <JewelDisc tone="#8d6aad"><Tag className="size-4" strokeWidth={1.75} /></JewelDisc>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium">Usual ask per style</p>
-                    <p className="mt-0.5 text-xs text-muted">Fills the ask on sales that never wrote one, so the price cut can be derived.</p>
+                    <p className="text-sm font-medium">{tx(lang, "tray.usualAsk")}</p>
+                    <p className="mt-0.5 text-xs text-muted">{tx(lang, "tray.usualAskSub")}</p>
                     <div className="mt-2 grid min-w-0 gap-2">
                       {batch.styles.map((style) => (
                         <label key={style} className="flex min-w-0 items-center gap-3 text-sm">
@@ -341,7 +345,7 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChang
           </div>
 
           {batch.groups.length || batch.clusters.length ? (
-            <Kicker right={`${batch.groups.length + batch.clusters.length} to decide`}>Needs your word</Kicker>
+            <Kicker right={tx(lang, "tray.toDecide", { n: batch.groups.length + batch.clusters.length })}>{tx(lang, "tray.needsWord")}</Kicker>
           ) : null}
 
           {batch.groups.map((group) => {
@@ -364,7 +368,7 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChang
                     {group.rowIndexes.slice(0, 6).map((index) => (
                       <li key={index} className="truncate text-xs text-muted">{batch.rows[index].row.raw}</li>
                     ))}
-                    {group.rowIndexes.length > 6 ? <li className="text-xs text-muted">+{group.rowIndexes.length - 6} more</li> : null}
+                    {group.rowIndexes.length > 6 ? <li className="text-xs text-muted">{tx(lang, "tray.moreRows", { n: group.rowIndexes.length - 6 })}</li> : null}
                   </ul>
                 )}
                 <div className={group.options.length === 2 ? "mt-3 grid grid-cols-2 gap-2" : "mt-3 flex flex-wrap gap-2"}>
@@ -392,16 +396,15 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChang
                 <div className="flex items-start gap-3">
                   <JewelDisc tone="#4f7f8a"><PackageSearch className="size-4" strokeWidth={1.75} /></JewelDisc>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-semibold tracking-[0.14em] uppercase" style={{ color: `color-mix(in srgb, ${litTone("#4f7f8a")} 75%, var(--v-ink))` }}>Already here?</p>
+                    <p className="text-[10px] font-semibold tracking-[0.14em] uppercase" style={{ color: `color-mix(in srgb, ${litTone("#4f7f8a")} 75%, var(--v-ink))` }}>{tx(lang, "tray.alreadyHere")}</p>
                     <p className="mt-0.5 text-[15px] leading-snug font-medium">{cluster.styleName}</p>
                     <p className="mt-1 text-xs text-muted">
-                      cost {money(cluster.costCents)} · {floorMembers.length ? `${floorMembers.length} on your floor · ` : ""}{batchMembers.length} in this batch
-                      {cluster.sizeDiffers ? " · the size is written two ways — the same piece does that" : ""}
+                      {lang === "es" ? <>costo {money(cluster.costCents)} · {floorMembers.length ? `${floorMembers.length} en tu inventario · ` : ""}{batchMembers.length} en este lote{cluster.sizeDiffers ? " · la talla está escrita de dos maneras: la misma pieza hace eso" : ""}</> : <>cost {money(cluster.costCents)} · {floorMembers.length ? `${floorMembers.length} on your floor · ` : ""}{batchMembers.length} in this batch{cluster.sizeDiffers ? " · the size is written two ways — the same piece does that" : ""}</>}
                     </p>
                   </div>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2">
-                  {([["same", "Same piece", "complete the record"], ["different", "Different pieces", "import as new"]] as const).map(([value, title, sub]) => (
+                  {([["same", tx(lang, "tray.samePiece"), tx(lang, "tray.samePieceSub")], ["different", tx(lang, "tray.diffPieces"), tx(lang, "tray.diffPiecesSub")]] as const).map(([value, title, sub]) => (
                     <button
                       key={value}
                       type="button"
@@ -418,19 +421,19 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChang
             );
           })}
 
-          <Kicker right={`importing ${batch.rows.filter((r) => decisions.include[r.index] !== false).length} of ${batch.rows.length}`}>
-            <span className="inline-flex items-center gap-1.5"><ListChecks className="size-3.5" strokeWidth={1.75} /> Every line</span>
+          <Kicker right={tx(lang, "tray.importingOf", { a: batch.rows.filter((r) => decisions.include[r.index] !== false).length, b: batch.rows.length })}>
+            <span className="inline-flex items-center gap-1.5"><ListChecks className="size-3.5" strokeWidth={1.75} /> {tx(lang, "tray.everyLine")}</span>
           </Kicker>
           <ul className="max-h-80 divide-y divide-line/50 overflow-auto rounded-2xl border border-line bg-panel px-3">
             {batch.rows.map((trayRow) => {
               const input = trayRow.input;
               const bits = [
-                input.costCents ? `cost ${money(input.costCents)}` : "",
-                input.askCents ? `ask ${money(input.askCents)}` : "",
-                input.saleCents != null ? `sold ${money(input.saleCents)}` : "",
-                input.buyRebateCents ? `rebate ${money(input.buyRebateCents)}` : "",
-                input.deliveryCents ? `delivery ${money(input.deliveryCents)}` : "",
-                trayRow.priceCut ? `cut ${money(trayRow.priceCut)}` : "",
+                input.costCents ? `${tx(lang, "tray.bitCost")} ${money(input.costCents)}` : "",
+                input.askCents ? `${tx(lang, "tray.bitAsk")} ${money(input.askCents)}` : "",
+                input.saleCents != null ? `${tx(lang, "tray.bitSold")} ${money(input.saleCents)}` : "",
+                input.buyRebateCents ? `${tx(lang, "tray.bitRebate")} ${money(input.buyRebateCents)}` : "",
+                input.deliveryCents ? `${tx(lang, "tray.bitDelivery")} ${money(input.deliveryCents)}` : "",
+                trayRow.priceCut ? `${tx(lang, "tray.bitCut")} ${money(trayRow.priceCut)}` : "",
               ].filter(Boolean).join(" · ");
               const classTone = litTone(CLASS_TONE[trayRow.classLabel.split(" · ")[0]] ?? "#5f8f72");
               return (
@@ -440,7 +443,7 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChang
                     className="mt-1 size-4 shrink-0 accent-[var(--v-accent)]"
                     checked={decisions.include[trayRow.index] !== false}
                     onChange={(event) => setDecisions((current) => (current ? { ...current, include: { ...current.include, [trayRow.index]: event.target.checked } } : current))}
-                    aria-label={`Import line ${trayRow.index + 1}`}
+                    aria-label={tx(lang, "tray.importLine", { n: trayRow.index + 1 })}
                   />
                   <span className="mt-1.5 size-2.5 shrink-0 rounded-full" style={{ background: lightDot[trayRow.light] }} />
                   <span className="min-w-0 flex-1">
@@ -466,9 +469,7 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChang
           {preview ? (
             <div className="mt-4 rounded-2xl border border-line bg-panel p-3">
               <p className="px-1 pb-2 text-xs text-muted">
-                {preview.add.length} new {preview.add.length === 1 ? "piece" : "pieces"}
-                {preview.update.length ? ` · ${preview.update.length} completed on the floor` : ""}
-                {batch.totals.revenue ? ` · ${money(batch.totals.revenue)} in` : ""}
+                {lang === "es" ? <>{preview.add.length} {preview.add.length === 1 ? "pieza nueva" : "piezas nuevas"}{preview.update.length ? ` · ${preview.update.length} completadas en el inventario` : ""}{batch.totals.revenue ? ` · ${money(batch.totals.revenue)} entraron` : ""}</> : <>{preview.add.length} new {preview.add.length === 1 ? "piece" : "pieces"}{preview.update.length ? ` · ${preview.update.length} completed on the floor` : ""}{batch.totals.revenue ? ` · ${money(batch.totals.revenue)} in` : ""}</>}
               </p>
               <button
                 type="button"
@@ -488,9 +489,9 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChang
                   }
                 }}
               >
-                {applying ? "Importing…" : `Import ${preview.add.length} ${preview.add.length === 1 ? "piece" : "pieces"}${preview.update.length ? ` · complete ${preview.update.length} on the floor` : ""}`}
+                {applying ? tx(lang, "tray.importing") : lang === "es" ? `Importar ${preview.add.length} ${preview.add.length === 1 ? "pieza" : "piezas"}${preview.update.length ? ` · completar ${preview.update.length} en el inventario` : ""}` : `Import ${preview.add.length} ${preview.add.length === 1 ? "piece" : "pieces"}${preview.update.length ? ` · complete ${preview.update.length} on the floor` : ""}`}
               </button>
-              {applyError ? <p className="px-1 pt-2 text-sm text-danger">The import didn't go through — nothing was added. Try again.</p> : null}
+              {applyError ? <p className="px-1 pt-2 text-sm text-danger">{tx(lang, "tray.importFailed")}</p> : null}
             </div>
           ) : null}
         </>

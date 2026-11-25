@@ -1,4 +1,5 @@
 import { daysHeld, todayISO, type Piece } from "./model";
+import { tx, type Lang } from "./i18n";
 import { isSale, isStock, netCost, sizeName } from "./metrics";
 
 /* The Advisor's evidence (1.1.0): what to buy again, what to move, how to
@@ -60,12 +61,12 @@ function shift(iso: string, days: number) {
 }
 
 /** Products (and their best size) that sold more than once, fastest movers first. */
-export function restockList(pieces: Piece[], today = todayISO()): Restock[] {
+export function restockList(pieces: Piece[], today = todayISO(), lang: Lang = "en"): Restock[] {
   const since = shift(today, -90);
   const map = new Map<string, { product: string; sold: Piece[]; stock: Piece[] }>();
   for (const piece of pieces) {
     if (!isSale(piece) && !isStock(piece)) continue;
-    const product = piece.name.trim() || "Untitled";
+    const product = piece.name.trim() || tx(lang, "common.untitled");
     const row = map.get(product.toLowerCase()) ?? { product, sold: [], stock: [] };
     if (isSale(piece)) row.sold.push(piece);
     else row.stock.push(piece);
@@ -104,7 +105,7 @@ export function restockList(pieces: Piece[], today = todayISO()): Restock[] {
 }
 
 /** On-hand pieces that have outstayed their product's usual selling time (or 60 days when there is no history). */
-export function moveList(pieces: Piece[], today = todayISO()): MoveGroup[] {
+export function moveList(pieces: Piece[], today = todayISO(), lang: Lang = "en"): MoveGroup[] {
   const pace = new Map<string, number[]>();
   for (const piece of pieces.filter(isSale)) {
     const d = daysHeld(piece.receivedOn, piece.soldOn, today);
@@ -123,7 +124,7 @@ export function moveList(pieces: Piece[], today = todayISO()): MoveGroup[] {
     const usual = own && own.length >= 2 ? median(own) : overall;
     const limit = Math.max(60, usual != null ? Math.round(usual * 1.5) : 60);
     if (days < limit) continue;
-    const product = piece.name.trim() || "Untitled";
+    const product = piece.name.trim() || tx(lang, "common.untitled");
     const row = map.get(key) ?? { product, pieces: [], units: 0, oldest: 0, cost: 0, pace: usual, ask: null, cut: null, floor: 0 };
     row.pieces.push({ piece, days });
     row.units += piece.qty;
@@ -144,11 +145,11 @@ export function moveList(pieces: Piece[], today = todayISO()): MoveGroup[] {
 }
 
 /** Price evidence per product with two or more priced sales: the range buyers paid against today's asks. */
-export function priceList(pieces: Piece[]): PriceRow[] {
+export function priceList(pieces: Piece[], lang: Lang = "en"): PriceRow[] {
   const map = new Map<string, { product: string; sold: Piece[]; stock: Piece[] }>();
   for (const piece of pieces) {
     if (!isSale(piece) && !isStock(piece)) continue;
-    const product = piece.name.trim() || "Untitled";
+    const product = piece.name.trim() || tx(lang, "common.untitled");
     const row = map.get(product.toLowerCase()) ?? { product, sold: [], stock: [] };
     if (isSale(piece)) {
       if (piece.saleCents != null && piece.saleCents > 0) row.sold.push(piece);

@@ -7,7 +7,20 @@ import { reportPdfBytes } from "@/lib/ventory/export/report-pdf";
 import { reportXlsxBytes } from "@/lib/ventory/export/report-xlsx";
 import { cash } from "@/lib/ventory/metrics";
 import type { Ad, Piece } from "@/lib/ventory/model";
+import { tx, type Lang } from "@/lib/ventory/i18n";
 import { inAndroidApp } from "@/spa/native";
+
+const PERIOD_KEY: Record<PeriodId, "exp.periodAll" | "exp.period12m" | "exp.periodYear" | "exp.periodMonth" | "exp.periodLastMonth"> = {
+  all: "exp.periodAll", "12m": "exp.period12m", year: "exp.periodYear", month: "exp.periodMonth", lastMonth: "exp.periodLastMonth",
+};
+const SECTION_KEY: Record<SectionId, ["exp.secTrend" | "exp.secEarns" | "exp.secStock" | "exp.secSales" | "exp.secSizes" | "exp.secAdvisor", "exp.secTrendHint" | "exp.secEarnsHint" | "exp.secStockHint" | "exp.secSalesHint" | "exp.secSizesHint" | "exp.secAdvisorHint"]> = {
+  trend: ["exp.secTrend", "exp.secTrendHint"],
+  earns: ["exp.secEarns", "exp.secEarnsHint"],
+  stock: ["exp.secStock", "exp.secStockHint"],
+  sales: ["exp.secSales", "exp.secSalesHint"],
+  sizes: ["exp.secSizes", "exp.secSizesHint"],
+  advisor: ["exp.secAdvisor", "exp.secAdvisorHint"],
+};
 
 /* Export (1.1.0): the PDF report and the worksheet, the family's export
    center adapted to Ventory. A download is a Blob behind an <a download>,
@@ -42,14 +55,14 @@ function save(name: string, bytes: Uint8Array, mime: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
-export function ExportCenter({ pieces, ads, advice, onClose, onDone }: { pieces: Piece[]; ads: Ad[]; advice: Advice; onClose: () => void; onDone: (text: string) => void }) {
+export function ExportCenter({ pieces, ads, advice, onClose, onDone, lang = "en" }: { pieces: Piece[]; ads: Ad[]; advice: Advice; onClose: () => void; onDone: (text: string) => void; lang?: Lang }) {
   const start = useMemo(remembered, []);
   const [period, setPeriod] = useState<PeriodId>(start.period);
   const [sections, setSections] = useState<SectionId[]>(start.sections);
   const [busy, setBusy] = useState<"pdf" | "xlsx" | null>(null);
   const model = useMemo(() => buildModel(pieces, ads, advice, { period, sections }), [pieces, ads, advice, period, sections]);
   const m = model.m;
-  const where = inAndroidApp() ? "Saved in Downloads › Ventory" : "Downloaded";
+  const where = inAndroidApp() ? tx(lang, "exp.savedDownloads") : tx(lang, "exp.downloaded");
 
   function remember(next: { period?: PeriodId; sections?: SectionId[] }) {
     try {
@@ -69,7 +82,7 @@ export function ExportCenter({ pieces, ads, advice, onClose, onDone }: { pieces:
         // In the Android app the shell confirms with its own toast once the file is written.
         if (!inAndroidApp()) onDone(`${where}: ${name}`);
       } catch (err) {
-        onDone(err instanceof Error ? `Could not export: ${err.message}` : "Could not export");
+        onDone(err instanceof Error ? tx(lang, "exp.couldNotMsg", { msg: err.message }) : tx(lang, "exp.couldNot"));
       } finally {
         setBusy(null);
       }
@@ -79,15 +92,15 @@ export function ExportCenter({ pieces, ads, advice, onClose, onDone }: { pieces:
   // Portalled to <body>: the desk panel carries a transform/filter, which would trap a fixed sheet inside it.
   return createPortal(
     <div className="veil-in fixed inset-0 z-30 grid place-items-end bg-black/50 p-3 sm:place-items-center" onClick={onClose}>
-      <div className="sheet-in max-h-[90dvh] w-full max-w-lg overflow-auto rounded-3xl border border-line bg-canvas p-5" role="dialog" aria-label="Export" onClick={(event) => event.stopPropagation()}>
+      <div className="sheet-in max-h-[90dvh] w-full max-w-lg overflow-auto rounded-3xl border border-line bg-canvas p-5" role="dialog" aria-label={tx(lang, "exp.title")} onClick={(event) => event.stopPropagation()}>
         <div className="flex items-center gap-3">
           <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent"><FileDown className="size-[18px]" strokeWidth={1.75} /></span>
-          <h2 className="min-w-0 flex-1 font-display text-2xl leading-tight">Export</h2>
-          <button type="button" aria-label="Close" className="press grid size-9 shrink-0 place-items-center rounded-full border border-line text-muted" onClick={onClose}><X className="size-4" strokeWidth={1.75} /></button>
+          <h2 className="min-w-0 flex-1 font-display text-2xl leading-tight">{tx(lang, "exp.title")}</h2>
+          <button type="button" aria-label={tx(lang, "common.close")} className="press grid size-9 shrink-0 place-items-center rounded-full border border-line text-muted" onClick={onClose}><X className="size-4" strokeWidth={1.75} /></button>
         </div>
-        <p className="mt-2 text-sm leading-relaxed text-muted">A report to read and a worksheet to work in, with the same numbers as Statistics.</p>
+        <p className="mt-2 text-sm leading-relaxed text-muted">{tx(lang, "exp.intro")}</p>
 
-        <p className="mt-5 text-[11px] font-medium tracking-[0.14em] text-faint uppercase">Sales from</p>
+        <p className="mt-5 text-[11px] font-medium tracking-[0.14em] text-faint uppercase">{tx(lang, "exp.salesFrom")}</p>
         <div className="mt-2 flex flex-wrap gap-2">
           {PERIODS.map((p) => (
             <button
@@ -97,15 +110,15 @@ export function ExportCenter({ pieces, ads, advice, onClose, onDone }: { pieces:
               onClick={() => { setPeriod(p.id); remember({ period: p.id }); }}
               className={`press h-9 rounded-full border px-3.5 text-sm whitespace-nowrap ${period === p.id ? "border-accent bg-accent text-accent-ink" : "border-line text-ink"}`}
             >
-              {p.label}
+              {tx(lang, PERIOD_KEY[p.id])}
             </button>
           ))}
         </div>
         <p className="mt-2.5 text-sm text-muted">
-          <span className="tabular-nums text-ink">{m.units.sold}</span> {m.units.sold === 1 ? "sale" : "sales"} · <span className="tabular-nums text-ink">{cash(m.revenue)}</span> in · <span className={`tabular-nums ${m.profit < 0 ? "text-danger" : "text-ink"}`}>{cash(m.profit)}</span> left after cost. Stock is always as of today.
+          {lang === "es" ? <><span className="tabular-nums text-ink">{m.units.sold}</span> {tx(lang, m.units.sold === 1 ? "common.saleWordOne" : "common.saleWordOther")} · <span className="tabular-nums text-ink">{cash(m.revenue)}</span> entraron · <span className={`tabular-nums ${m.profit < 0 ? "text-danger" : "text-ink"}`}>{cash(m.profit)}</span> quedaron tras el costo. El inventario es siempre al día de hoy.</> : <><span className="tabular-nums text-ink">{m.units.sold}</span> {m.units.sold === 1 ? "sale" : "sales"} · <span className="tabular-nums text-ink">{cash(m.revenue)}</span> in · <span className={`tabular-nums ${m.profit < 0 ? "text-danger" : "text-ink"}`}>{cash(m.profit)}</span> left after cost. Stock is always as of today.</>}
         </p>
 
-        <p className="mt-5 text-[11px] font-medium tracking-[0.14em] text-faint uppercase">In the PDF, after the summary</p>
+        <p className="mt-5 text-[11px] font-medium tracking-[0.14em] text-faint uppercase">{tx(lang, "exp.inPdf")}</p>
         <ul className="mt-1 divide-y divide-line border-y border-line">
           {SECTIONS.map((s) => {
             const on = sections.includes(s.id);
@@ -124,8 +137,8 @@ export function ExportCenter({ pieces, ads, advice, onClose, onDone }: { pieces:
                 >
                   <span className={`grid size-5 shrink-0 place-items-center rounded-md border ${on ? "border-accent bg-accent text-accent-ink" : "border-line"}`}>{on ? <Check className="size-3.5" strokeWidth={2.5} /> : null}</span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-sm text-ink">{s.label}</span>
-                    <span className="block text-xs text-muted">{s.hint}</span>
+                    <span className="block text-sm text-ink">{tx(lang, SECTION_KEY[s.id][0])}</span>
+                    <span className="block text-xs text-muted">{tx(lang, SECTION_KEY[s.id][1])}</span>
                   </span>
                 </button>
               </li>
@@ -136,14 +149,14 @@ export function ExportCenter({ pieces, ads, advice, onClose, onDone }: { pieces:
         <div className="mt-5 grid grid-cols-2 gap-2">
           <button type="button" disabled={!!busy} onClick={() => run("pdf")} className="press inline-flex h-12 items-center justify-center gap-2 rounded-full bg-accent px-4 text-sm font-medium text-accent-ink disabled:opacity-60">
             <FileText className="size-[18px]" strokeWidth={1.75} />
-            {busy === "pdf" ? "Making it" : "PDF report"}
+            {busy === "pdf" ? tx(lang, "exp.making") : tx(lang, "exp.pdfReport")}
           </button>
           <button type="button" disabled={!!busy} onClick={() => run("xlsx")} className="press inline-flex h-12 items-center justify-center gap-2 rounded-full border border-line px-4 text-sm font-medium text-ink disabled:opacity-60">
             <FileSpreadsheet className="size-[18px]" strokeWidth={1.75} />
-            {busy === "xlsx" ? "Making it" : "Worksheet"}
+            {busy === "xlsx" ? tx(lang, "exp.making") : tx(lang, "exp.worksheet")}
           </button>
         </div>
-        <p className="mt-2.5 text-xs leading-relaxed text-muted">The worksheet holds every piece and every sale (.xlsx, opens in Excel, Google Sheets and Numbers), whatever you pick for the PDF.</p>
+        <p className="mt-2.5 text-xs leading-relaxed text-muted">{tx(lang, "exp.sheetNote")}</p>
       </div>
     </div>,
     document.body,

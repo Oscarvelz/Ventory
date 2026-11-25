@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Archive, BadgeCheck, Car, Check, ChevronDown, CircleAlert, CircleDollarSign, ClipboardPaste, Clock, DatabaseBackup, FileDown, Footprints, Funnel, Glasses, House as HomeIcon, ImagePlus, LayoutGrid, List, Megaphone, Moon, Package, Palette, Pin, Plus, RectangleHorizontal, Rows2, ShieldCheck, Shirt, ShoppingBag, SlidersHorizontal, Sun, Trash2, TrendingUp, Truck, Watch } from "lucide-react";
+import { Archive, BadgeCheck, Car, Check, ChevronDown, CircleAlert, CircleDollarSign, ClipboardPaste, Clock, DatabaseBackup, FileDown, Footprints, Funnel, Glasses, Globe, House as HomeIcon, ImagePlus, LayoutGrid, List, Megaphone, Moon, Package, Palette, Pin, Plus, RectangleHorizontal, Rows2, ShieldCheck, Shirt, ShoppingBag, SlidersHorizontal, Sun, Trash2, TrendingUp, Truck, Watch } from "lucide-react";
 import { AccountCard, FingerprintControl, SignOutCard } from "@/lib/auth/gates";
 import { daysHeld, dollarsToCents, effectiveCostCents, emptyInput, money, priceCutCents, PROBLEMS, profitOf, STATUS_LABEL, STATUSES, todayISO, unitProfitCents, type Ad, type Piece, type PieceInput, type Status } from "@/lib/ventory/model";
 import { buildAdvice } from "@/lib/ventory/advisor";
@@ -11,7 +11,8 @@ import { ExportCenter } from "@/components/ventory/ExportCenter";
 import { ageTone, cash, compare, halfSize, marginOf, measure, pct, series, sizeName, TONES } from "@/lib/ventory/metrics";
 import { convertToUs } from "@/lib/ventory/sizes";
 import { APP_VERSION } from "@/spa/config";
-import { addSamples, applyTrayImport, clearSelected, createCheckpoint, deleteAd, deletePiece, importPieces, isLegacySample, loadFloor, removeSamples, replaceFloor, restoreCheckpoint, sampleSetSize, saveAd, saveAds, saveMark, savePiece, saveTheme } from "@/lib/ventory/server";
+import { addSamples, applyTrayImport, clearSelected, createCheckpoint, deleteAd, deletePiece, importPieces, isLegacySample, loadFloor, removeSamples, replaceFloor, restoreCheckpoint, sampleSetSize, saveAd, saveAds, saveLang, saveMark, savePiece, saveTheme } from "@/lib/ventory/server";
+import { mirrorLang, tx, type Lang, type StrKey } from "@/lib/ventory/i18n";
 import { asTheme, isLightTheme, LIGHT_THEMES, THEMES, type ThemeId } from "@/lib/ventory/themes";
 import { tone as litTone, toneInk } from "@/lib/ventory/tones";
 import { syncBarsNow } from "@/spa/native";
@@ -19,7 +20,7 @@ import { Wordmark } from "./mark";
 import { useScrollBars } from "./use-scroll-bars";
 import { RippleButton, rippleNav } from "./ripple";
 
-const SETTING_FOLDS = ["theme", "ads", "backup", "sample", "security", "remove"] as const;
+const SETTING_FOLDS = ["theme", "lang", "ads", "backup", "sample", "security", "remove"] as const;
 type Floor = Awaited<ReturnType<typeof loadFloor>>;
 type View = "floor" | "history" | "ledger";
 type Shelf = "live" | "all" | Status;
@@ -131,10 +132,10 @@ function isSale(piece: Piece) {
 
 type SaleLine = { name: string; count: number; revenue: number; profit: number; unpriced: number; costedRevenue?: number; costedProfit?: number };
 
-function salesOf(pieces: Piece[]): SaleLine[] {
+function salesOf(pieces: Piece[], lang: Lang = "en"): SaleLine[] {
   const map = new Map<string, SaleLine>();
   for (const piece of pieces) {
-    const name = piece.name.trim() || "Untitled";
+    const name = piece.name.trim() || tx(lang, "common.untitled");
     const row = map.get(name) ?? { name, count: 0, revenue: 0, profit: 0, unpriced: 0 };
     row.count += piece.qty;
     if (piece.saleCents == null) row.unpriced += piece.qty;
@@ -161,12 +162,12 @@ function take(piece: Piece) {
 
 type Grain = "week" | "month" | "year";
 
-function periodsOf(pieces: Piece[], grain: Grain) {
+function periodsOf(pieces: Piece[], grain: Grain, lang: Lang = "en") {
   const buckets = new Map<string, { label: string; stamp: number; revenue: number; profit: number; count: number }>();
   for (const piece of pieces.filter(isSale)) {
     const moneyIn = take(piece);
     const when = piece.soldOn;
-    let label = "No date";
+    let label = tx(lang, "stats.noDate");
     let stamp = 0;
     if (when) {
       const [year, month, day] = when.split("-").map(Number);
@@ -175,12 +176,12 @@ function periodsOf(pieces: Piece[], grain: Grain) {
         label = String(year);
         stamp = new Date(year, 0, 1).getTime();
       } else if (grain === "month") {
-        label = date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+        label = date.toLocaleDateString(lang === "es" ? "es" : "en-US", { month: "short", year: "numeric" });
         stamp = new Date(year, (month || 1) - 1, 1).getTime();
       } else {
         const start = new Date(date);
         start.setDate(date.getDate() - ((date.getDay() + 6) % 7));
-        label = start.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        label = start.toLocaleDateString(lang === "es" ? "es" : "en-US", { month: "short", day: "numeric" });
         stamp = start.getTime();
       }
     }
@@ -316,6 +317,12 @@ export function House() {
   const [marks, setMarks] = useState<Floor["marks"]>([]);
   const [ads, setAds] = useState<Floor["ads"]>([]);
   const [adsOn, setAdsOn] = useState(true);
+  const [lang, setLang] = useState<Lang>("en");
+  // t reads the language through a ref, so the stable useCallback handlers
+  // (frozen at first render by design) still speak the CURRENT language.
+  const langRef = useRef(lang);
+  langRef.current = lang;
+  const t = (key: StrKey, vars?: Record<string, string | number>) => tx(langRef.current, key, vars);
   const [openStats, setOpenStats] = useState<string[]>([]);
   const [pinnedStats, setPinnedStats] = useState<string[]>([]);
   const [statsReady, setStatsReady] = useState(false);
@@ -396,6 +403,8 @@ export function House() {
         setMarks(data.marks);
         setAds(data.ads);
         setAdsOn(data.adsOn);
+        setLang(data.lang);
+        mirrorLang(data.lang);
         setTheme(asTheme(data.theme));
         setChecks(data.checkpoints);
         applyTheme(asTheme(data.theme));
@@ -419,6 +428,8 @@ export function House() {
         setMarks(data.marks);
         setAds(data.ads);
         setAdsOn(data.adsOn);
+        setLang(data.lang);
+        mirrorLang(data.lang);
         setChecks(data.checkpoints);
         const next = asTheme(data.theme);
         setTheme(next);
@@ -445,7 +456,7 @@ export function House() {
   const groups = useMemo(() => {
     const cats = new Map<string, Map<string, Piece[]>>();
     for (const piece of visible) {
-      const category = piece.category.trim() || "Unsorted";
+      const category = piece.category.trim() || t("common.unsorted");
       const sub = styleOf(piece);
       const bucket = cats.get(category) ?? new Map<string, Piece[]>();
       const list = bucket.get(sub) ?? [];
@@ -454,7 +465,7 @@ export function House() {
       cats.set(category, bucket);
     }
     return [...cats.entries()]
-      .sort((a, b) => (a[0] === "Unsorted" ? 1 : b[0] === "Unsorted" ? -1 : a[0].localeCompare(b[0])))
+      .sort((a, b) => (a[0] === t("common.unsorted") ? 1 : b[0] === t("common.unsorted") ? -1 : a[0].localeCompare(b[0])))
       .map(([category, subs]) => ({
         category,
         count: [...subs.values()].reduce((sum, list) => sum + list.length, 0),
@@ -462,7 +473,7 @@ export function House() {
           .sort((a, b) => (a[0] === "" ? 1 : b[0] === "" ? -1 : a[0].localeCompare(b[0])))
           .map(([name, items]) => ({ name, items })),
       }));
-  }, [visible]);
+  }, [visible, lang]);
 
   const history = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -511,8 +522,8 @@ export function House() {
     return [...seen.entries()].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
   }, [pieces]);
 
-  const soldLines = useMemo(() => salesOf(pieces.filter((piece) => piece.status === "sold")), [pieces]);
-  const countedLines = useMemo(() => salesOf(pieces.filter(isSale)), [pieces]);
+  const soldLines = useMemo(() => salesOf(pieces.filter((piece) => piece.status === "sold"), lang), [pieces, lang]);
+  const countedLines = useMemo(() => salesOf(pieces.filter(isSale), lang), [pieces, lang]);
 
   const stats = useMemo(() => {
     const available = pieces.filter((piece) => piece.status === "available").reduce((sum, piece) => sum + piece.qty, 0);
@@ -528,16 +539,16 @@ export function House() {
   const picture = useMemo(() => {
     const held = pieces.filter((piece) => piece.status === "available" || piece.status === "incoming");
     const sold = pieces.filter(isSale);
-    const sizeOf = (piece: Piece) => (piece.usSize ? `US ${halfSize(piece.usSize)}` : piece.sizeLabel ? `${piece.sizeSystem} ${piece.sizeLabel}` : "No size");
+    const sizeOf = (piece: Piece) => (piece.usSize ? `US ${halfSize(piece.usSize)}` : piece.sizeLabel ? `${piece.sizeSystem} ${piece.sizeLabel}` : tx(lang, "stats.noSize"));
     const holds = sold.map((piece) => daysHeld(piece.receivedOn, piece.soldOn)).filter((days): days is number => days != null);
     const sitting = held.map((piece) => daysHeld(piece.receivedOn, null)).filter((days): days is number => days != null);
     return {
       home: held.filter((piece) => piece.place === "home").reduce((sum, piece) => sum + piece.qty, 0),
       car: held.filter((piece) => piece.place === "car").reduce((sum, piece) => sum + piece.qty, 0),
       loose: held.filter((piece) => !piece.place).reduce((sum, piece) => sum + piece.qty, 0),
-      sizesHere: barsOf(held, sizeOf),
-      sizesSold: barsOf(sold, sizeOf),
-      sources: barsOf(pieces.filter((piece) => piece.source), (piece) => piece.source),
+      sizesHere: barsOf(held, sizeOf, lang),
+      sizesSold: barsOf(sold, sizeOf, lang),
+      sources: barsOf(pieces.filter((piece) => piece.source), (piece) => piece.source, lang),
       soldNow: pieces.filter((piece) => piece.status === "sold").reduce((sum, piece) => sum + piece.qty, 0),
       archived: pieces.filter((piece) => piece.status === "archived").reduce((sum, piece) => sum + piece.qty, 0),
       avgHold: holds.length ? Math.round(holds.reduce((sum, days) => sum + days, 0) / holds.length) : null,
@@ -545,11 +556,11 @@ export function House() {
       problems: pieces.filter((piece) => piece.problem).length,
       margin: (() => { const share = marginOf(pieces.filter((piece) => piece.status === "sold" || piece.wasSold)); return share == null ? null : Math.round(share * 100); })(),
     };
-  }, [pieces, stats.profit, stats.revenue]);
+  }, [pieces, stats.profit, stats.revenue, lang]);
 
   // 1.10.0: memoized — the floor panel's content is memoized as a whole, and a
   // fresh object identity here every render would defeat it.
-  const month = useMemo(() => periodsOf(pieces, "month").filter((row) => row.stamp > 0).at(-1) ?? null, [pieces]);
+  const month = useMemo(() => periodsOf(pieces, "month", lang).filter((row) => row.stamp > 0).at(-1) ?? null, [pieces, lang]);
   const datedMonths = periodsOf(pieces, "month").filter((row) => row.stamp > 0);
   const datedWeeks = periodsOf(pieces, "week").filter((row) => row.stamp > 0);
   const pricedQty = pieces.filter((piece) => isSale(piece) && piece.saleCents != null).reduce((sum, piece) => sum + piece.qty, 0);
@@ -567,7 +578,7 @@ export function House() {
     localStorage.setItem("ventory-stat-pin", JSON.stringify(pinnedStats));
   }, [openStats, pinnedStats, statsReady]);
 
-  const brief = useMemo(() => buildAdvice(pieces, adsOn ? ads : []), [pieces, ads, adsOn]);
+  const brief = useMemo(() => buildAdvice(pieces, adsOn ? ads : [], lang), [pieces, ads, adsOn, lang]);
 
   const savingRef = useRef(false);
   async function onSave(input: PieceInput) {
@@ -601,32 +612,32 @@ export function House() {
     const next: Status = status === "incoming" && piece.status === "incoming" ? "available" : status;
     if (piece.status === next) return;
     const unselectComing = piece.status === "incoming" && next === "available";
-    const word = next === "incoming" ? "Coming" : next === "sold" ? "Sold" : next === "available" ? "Available" : "Archive";
+    const word = next === "incoming" ? t("ask.wordComing") : next === "sold" ? t("status.sold") : next === "available" ? t("status.available") : t("status.archived");
     const detail =
       next === "sold"
-        ? `It moves to Sold in History at ${money(piece.saleCents ?? piece.askCents)} via ${piece.channel || "Facebook Marketplace"}. Reverse stays up for a few seconds.`
+        ? t("ask.soldDetail", { price: money(piece.saleCents ?? piece.askCents), channel: piece.channel || "Facebook Marketplace" })
         : unselectComing
-          ? "It comes off Coming and goes back to Available. Nothing changes until you confirm."
+          ? t("ask.offComingDetail")
           : next === "incoming"
-            ? "It counts as on the way, not ready to sell. Nothing changes until you confirm."
+            ? t("ask.comingDetail")
             : next === "archived"
-              ? "It moves to Archive. Nothing changes until you confirm."
-              : "It goes back on the shelf. Nothing changes until you confirm.";
+              ? t("ask.archiveDetail")
+              : t("ask.backDetail");
     setAsk({
       piece,
       status: next,
-      title: unselectComing ? `Take ${piece.name} off Coming?` : `Mark ${piece.name} as ${word}?`,
+      title: unselectComing ? t("ask.takeOffComing", { name: piece.name }) : t("ask.markAs", { name: piece.name, word }),
       detail,
     });
   }
 
   function requestProblem(piece: Piece, problem: string) {
-    const label = PROBLEMS.find((item) => item.id === problem)?.label ?? "Clear the problem";
+    const label = problem ? t(`problem.${problem}` as StrKey) : t("problem.clear");
     setAsk({
       piece,
       problem,
-      title: problem ? `${label} on ${piece.name}?` : `Clear the problem on ${piece.name}?`,
-      detail: "Nothing changes until you confirm.",
+      title: problem ? t("ask.problemTitle", { label, name: piece.name }) : t("ask.clearProblemTitle", { name: piece.name }),
+      detail: t("ask.nothingDetail"),
     });
   }
 
@@ -730,19 +741,19 @@ export function House() {
         setAds(next.ads);
         setSettings(false);
         setView("floor");
-        setNotice("Sample floor added — turn it off anytime in Settings, under Sample floor");
+        setNotice(t("sample.added"));
       })
-      .catch((err: unknown) => setNotice(err instanceof Error ? err.message : "Could not load the sample floor"));
+      .catch((err: unknown) => setNotice(err instanceof Error ? err.message : t("sample.couldNotLoad")));
   }, []);
 
   const wipeRows = [
-    { id: "available", label: "Available", count: pieces.filter((piece) => piece.status === "available").length },
-    { id: "incoming", label: "Incoming", count: pieces.filter((piece) => piece.status === "incoming").length },
-    { id: "sold", label: "Sold", count: pieces.filter((piece) => piece.status === "sold").length },
-    { id: "archived", label: "Archive", count: pieces.filter((piece) => piece.status === "archived").length },
-    { id: "kept", label: "Kept", count: pieces.filter((piece) => piece.status === "kept").length },
-    { id: "ads", label: "Ad records", count: ads.length },
-    { id: "backups", label: "Saved backups", count: checks.length },
+    { id: "available", label: t("status.available"), count: pieces.filter((piece) => piece.status === "available").length },
+    { id: "incoming", label: t("status.incoming"), count: pieces.filter((piece) => piece.status === "incoming").length },
+    { id: "sold", label: t("status.sold"), count: pieces.filter((piece) => piece.status === "sold").length },
+    { id: "archived", label: t("status.archiveNoun"), count: pieces.filter((piece) => piece.status === "archived").length },
+    { id: "kept", label: t("status.kept"), count: pieces.filter((piece) => piece.status === "kept").length },
+    { id: "ads", label: t("remove.adRecords"), count: ads.length },
+    { id: "backups", label: t("remove.savedBackups"), count: checks.length },
   ];
   const wipePicked = wipeRows.filter((row) => wipe.includes(row.id) && row.count > 0);
 
@@ -762,13 +773,13 @@ export function House() {
         setWipe([]);
         setWipeAsk(false);
         const parts = [
-          next.removedPieces ? `${next.removedPieces} ${next.removedPieces === 1 ? "piece" : "pieces"}` : "",
-          next.removedAds ? `${next.removedAds} ${next.removedAds === 1 ? "ad record" : "ad records"}` : "",
-          next.removedBackups ? `${next.removedBackups} ${next.removedBackups === 1 ? "backup" : "backups"}` : "",
+          next.removedPieces ? `${next.removedPieces} ${next.removedPieces === 1 ? t("common.piece") : t("common.pieces")}` : "",
+          next.removedAds ? `${next.removedAds} ${next.removedAds === 1 ? t("common.adRecord") : t("common.adRecords")}` : "",
+          next.removedBackups ? `${next.removedBackups} ${next.removedBackups === 1 ? t("common.backupWord") : t("common.backupsWord")}` : "",
         ].filter(Boolean);
-        setNotice(parts.length ? `Removed ${parts.join(", ")}` : "Nothing matched");
+        setNotice(parts.length ? t("remove.noticeList", { parts: parts.join(", ") }) : t("remove.nothingMatched"));
       })
-      .catch((err: unknown) => setNotice(err instanceof Error ? err.message : "Could not remove"))
+      .catch((err: unknown) => setNotice(err instanceof Error ? err.message : t("remove.couldNot")))
       .finally(() => setWiping(false));
   }
 
@@ -797,15 +808,15 @@ export function House() {
       <input
         value={query}
         onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search pieces"
+        placeholder={t("floor.searchPlaceholder")}
         className="surface fold-row h-12 w-full rounded-2xl border border-line bg-panel px-4 text-sm outline-none focus:border-accent"
       />
       <div className="mt-3 grid grid-cols-2 gap-2">
         {([
-          ["hand", "On hand", String(stats.available), stats.available ? `${money(sitting("available"))} ready` : "Nothing on the floor yet", Package, "#5f8f72"],
-          ["incoming", "Incoming", String(stats.incoming), stats.incoming ? `${money(sitting("incoming"))} on the way` : "Nothing on the road yet", Truck, "#5d86ad"],
-          ["revenue", "Revenue", money(stats.revenue), month ? `${month.label} · ${money(month.revenue)}` : "Nothing on the books yet", CircleDollarSign, "#b08a3e"],
-          ["profit", "Profit", money(stats.profit), picture.margin == null ? "No profit yet" : `${picture.margin}% after cost`, TrendingUp, "#8d6aad"],
+          ["hand", t("floor.onHand"), String(stats.available), stats.available ? t("floor.ready", { amount: money(sitting("available")) }) : t("floor.nothingFloor"), Package, "#5f8f72"],
+          ["incoming", t("status.incoming"), String(stats.incoming), stats.incoming ? t("floor.onTheWay", { amount: money(sitting("incoming")) }) : t("floor.nothingRoad"), Truck, "#5d86ad"],
+          ["revenue", t("floor.revenue"), money(stats.revenue), month ? `${month.label} · ${money(month.revenue)}` : t("floor.nothingBooks"), CircleDollarSign, "#b08a3e"],
+          ["profit", t("floor.profit"), money(stats.profit), picture.margin == null ? t("floor.noProfit") : t("floor.afterCost", { pct: picture.margin }), TrendingUp, "#8d6aad"],
         ] as const).map(([id, label, value, hint, icon, tone]) => (
           <Summary
             key={id}
@@ -823,19 +834,19 @@ export function House() {
           />
         ))}
       </div>
-      <ViewBar face={face} cols={cols} onFace={setFace} onCols={setCols} kinds={kinds} kind={kind} open={filterOpen} onToggle={() => setFilterOpen((open) => !open)} onKind={(id) => { setKind(id); setFilterOpen(false); }} />
+      <ViewBar lang={lang} face={face} cols={cols} onFace={setFace} onCols={setCols} kinds={kinds} kind={kind} open={filterOpen} onToggle={() => setFilterOpen((open) => !open)} onKind={(id) => { setKind(id); setFilterOpen(false); }} />
       {lens === "revenue" || lens === "profit" ? (
         <div className="mt-4 space-y-3">
-          <Performance pieces={pieces} focus={lens} />
-          <LatestSales pieces={pieces} onOpen={(piece) => { setEditorFocus(null); setEditor({ ...piece }); }} />
+          <Performance lang={lang} pieces={pieces} focus={lens} />
+          <LatestSales lang={lang} pieces={pieces} onOpen={(piece) => { setEditorFocus(null); setEditor({ ...piece }); }} />
         </div>
       ) : (
         <>
       {notice ? <p className="mt-3 text-sm text-accent">{notice}</p> : null}
-      {phase === "loading" ? <p className="mt-8 text-muted">Opening the floor</p> : null}
+      {phase === "loading" ? <p className="mt-8 text-muted">{t("floor.opening")}</p> : null}
       {phase === "error" ? (
         <div className="mt-6 rounded-3xl border border-line bg-panel p-6">
-          <p className="font-display text-2xl">The floor did not open</p>
+          <p className="font-display text-2xl">{t("floor.didNotOpen")}</p>
           <p className="mt-2 text-sm text-muted">{error}</p>
         </div>
       ) : null}
@@ -845,19 +856,19 @@ export function House() {
           // nothing declared "Nothing on this shelf" and offered to load the
           // sample floor onto a floor that was not empty at all (G-5).
           <div className="mt-6 rounded-3xl border border-line bg-panel px-6 py-8">
-            <p className="font-display text-3xl">{query.trim() ? `No pieces match “${query.trim()}”` : "No pieces match these filters"}</p>
-            <p className="mt-2 max-w-sm text-sm text-muted">The floor is not empty — this view is hiding everything on it.</p>
+            <p className="font-display text-3xl">{query.trim() ? t("floor.noMatchQuery", { q: query.trim() }) : t("floor.noMatchFilters")}</p>
+            <p className="mt-2 max-w-sm text-sm text-muted">{t("floor.notEmpty")}</p>
           </div>
         ) : (
           <div className="mt-6 rounded-3xl border border-line bg-panel px-6 py-8">
-            <p className="font-display text-3xl">Nothing on this shelf</p>
-            <p className="mt-2 max-w-sm text-sm text-muted">Incoming and available stay here. Sold and archive live in History.</p>
+            <p className="font-display text-3xl">{t("floor.emptyTitle")}</p>
+            <p className="mt-2 max-w-sm text-sm text-muted">{t("floor.emptyBody")}</p>
             <button
               type="button"
               className="press mt-5 h-11 rounded-full border border-line px-4 text-sm"
               onClick={loadSampleFloor}
             >
-              Load a sample floor
+              {t("floor.loadSample")}
             </button>
           </div>
         )
@@ -911,7 +922,7 @@ export function House() {
                           </label>
                           <span className="min-w-0 flex-1">
                             <span className="block truncate font-medium">{sub.name}</span>
-                            <span className="block text-xs text-muted">{photo ? `${sub.items.length} inside` : "Add a photo"}</span>
+                            <span className="block text-xs text-muted">{photo ? t("floor.inside", { n: sub.items.length }) : t("floor.addPhoto")}</span>
                           </span>
                         </div>
                       ) : null}
@@ -922,6 +933,7 @@ export function House() {
                               key={piece.id}
                               piece={piece}
                               layout={layout}
+                              lang={lang}
                               iconic
                               onOpen={openPieceCard}
                               onStatus={statusPieceCard}
@@ -945,7 +957,7 @@ export function House() {
       )}
       </>
     );
-  }, [query, stats, sitting, month, picture, lens, face, cols, kinds, kind, filterOpen, pieces, notice, phase, error, visible, chip, groups, openCats, wideGrid, wideCols, layout, marks, nestClass, floorWindow.count, floorWindow.hasMore, loadSampleFloor, openPieceCard, statusPieceCard, deletePieceCard, problemPieceCard]);
+  }, [query, stats, sitting, month, picture, lens, face, cols, kinds, kind, filterOpen, pieces, notice, phase, error, visible, chip, groups, openCats, wideGrid, wideCols, layout, marks, nestClass, floorWindow.count, floorWindow.hasMore, loadSampleFloor, openPieceCard, statusPieceCard, deletePieceCard, problemPieceCard, lang]);
 
   const historyContent = useMemo(() => {
     return (
@@ -953,12 +965,12 @@ export function House() {
       <input
         value={query}
         onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search pieces"
+        placeholder={t("floor.searchPlaceholder")}
         className="surface fold-row h-12 w-full rounded-2xl border border-line bg-panel px-4 text-sm outline-none focus:border-accent"
       />
       <div className="mt-3 grid grid-cols-2 gap-2">
         <HistoryChip
-          label="Sold"
+          label={t("status.sold")}
           value={String(pieces.filter((piece) => piece.status === "sold").reduce((sum, piece) => sum + piece.qty, 0))}
           hint={money(pieces.filter((piece) => piece.status === "sold" && piece.saleCents != null).reduce((sum, piece) => sum + (piece.saleCents ?? 0) * piece.qty, 0))}
           icon={BadgeCheck}
@@ -967,35 +979,35 @@ export function House() {
           onClick={() => setPast("sold")}
         />
         <HistoryChip
-          label="Archive"
+          label={t("status.archiveNoun")}
           value={String(pieces.filter((piece) => piece.status === "archived").reduce((sum, piece) => sum + piece.qty, 0))}
-          hint="Still in the numbers"
+          hint={t("history.stillInNumbers")}
           icon={Archive}
           tone="#4f7f8a"
           pressed={past === "archived"}
           onClick={() => setPast("archived")}
         />
       </div>
-      {adsOn ? <AdsWidget ads={ads} pieces={pieces} onChange={setAds} /> : null}
-      <ViewBar face={face} cols={cols} onFace={setFace} onCols={setCols} kinds={past === "sold" ? products : kinds} kind={past === "sold" ? product : kind} open={filterOpen} onToggle={() => setFilterOpen((open) => !open)} onKind={(id) => { if (past === "sold") setProduct(id); else setKind(id); setFilterOpen(false); }} />
+      {adsOn ? <AdsWidget lang={lang} ads={ads} pieces={pieces} onChange={setAds} /> : null}
+      <ViewBar lang={lang} face={face} cols={cols} onFace={setFace} onCols={setCols} kinds={past === "sold" ? products : kinds} kind={past === "sold" ? product : kind} open={filterOpen} onToggle={() => setFilterOpen((open) => !open)} onKind={(id) => { if (past === "sold") setProduct(id); else setKind(id); setFilterOpen(false); }} />
       {/* Tablet landscape (1.1.4): the By product board stands beside the list instead of above it.
           The grid only exists when the board does, so an archive list (or an empty shelf) keeps the
           full width. Below lg the stacking is exactly as before. */}
       <div className={past === "sold" && soldLines.some((row) => product === "all" || row.name.toLowerCase() === product) ? "lg:grid lg:grid-cols-2 lg:items-start lg:gap-4" : undefined}>
-      {past === "sold" && soldLines.some((row) => product === "all" || row.name.toLowerCase() === product) ? <SalesBoard title="By product" rows={soldLines.filter((row) => product === "all" || row.name.toLowerCase() === product)} /> : null}
+      {past === "sold" && soldLines.some((row) => product === "all" || row.name.toLowerCase() === product) ? <SalesBoard lang={lang} title={t("history.byProduct")} rows={soldLines.filter((row) => product === "all" || row.name.toLowerCase() === product)} /> : null}
       {history.length === 0 ? (
         query.trim() ? (
           // 1.8.0: the shared search can empty History too — say that, instead of
           // "Nothing sold yet" printed directly under a SOLD chip counting sales (G-5).
           <div className="mt-6 rounded-3xl border border-line bg-panel px-6 py-8">
-            <p className="font-display text-3xl">No pieces match “{query.trim()}”</p>
-            <p className="mt-2 max-w-sm text-sm text-muted">History is not empty — the search is hiding everything in it.</p>
+            <p className="font-display text-3xl">{t("floor.noMatchQuery", { q: query.trim() })}</p>
+            <p className="mt-2 max-w-sm text-sm text-muted">{t("history.notEmpty")}</p>
           </div>
         ) : (
         <div className="mt-6 rounded-3xl border border-line bg-panel px-6 py-8">
-          <p className="font-display text-3xl">{past === "sold" ? (product === "all" ? "Nothing sold yet" : "Nothing under this product") : "Nothing archived"}</p>
+          <p className="font-display text-3xl">{past === "sold" ? (product === "all" ? t("history.nothingSold") : t("history.nothingProduct")) : t("history.nothingArchived")}</p>
           <p className="mt-2 max-w-sm text-sm text-muted">
-            {past === "sold" ? "Mark a piece sold and it lands here, with its price and its dates." : "Retire a piece and it stays here. Its sale still counts in Statistics."}
+            {past === "sold" ? t("history.soldBody") : t("history.archivedBody")}
           </p>
         </div>
         )
@@ -1006,6 +1018,7 @@ export function House() {
               key={piece.id}
               piece={piece}
               layout={layout}
+              lang={lang}
               onOpen={openPieceCard}
               onStatus={statusPieceCard}
               onDelete={deletePieceCard}
@@ -1018,7 +1031,7 @@ export function House() {
       </div>
       </>
     );
-  }, [query, pieces, past, adsOn, ads, face, cols, products, kinds, product, kind, filterOpen, soldLines, history, layout, listClass, historyWindow.count, historyWindow.hasMore, openPieceCard, statusPieceCard, deletePieceCard, problemPieceCard]);
+  }, [query, pieces, past, adsOn, ads, face, cols, products, kinds, product, kind, filterOpen, soldLines, history, layout, listClass, historyWindow.count, historyWindow.hasMore, openPieceCard, statusPieceCard, deletePieceCard, problemPieceCard, lang]);
 
   const ledgerContent = useMemo(() => {
     return (
@@ -1027,8 +1040,8 @@ export function House() {
           chart and advice in two columns. Below lg the switch and the single desk are untouched. */}
       <div className="grid grid-cols-2 gap-2 lg:hidden">
         {([
-          ["stats", "Statistics"],
-          ["advisor", "Advisor"],
+          ["stats", t("view.statistics")],
+          ["advisor", t("view.advisor")],
         ] as const).map(([id, label]) => (
           <RippleButton
             key={id}
@@ -1041,13 +1054,14 @@ export function House() {
           </RippleButton>
         ))}
       </div>
-      {exporting ? <ExportCenter pieces={pieces} ads={adsOn ? ads : []} advice={brief} onClose={() => setExporting(false)} onDone={setNotice} /> : null}
+      {exporting ? <ExportCenter lang={lang} pieces={pieces} ads={adsOn ? ads : []} advice={brief} onClose={() => setExporting(false)} onDone={setNotice} /> : null}
       <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-5">
         <div className={desk === "stats" ? "min-w-0" : "hidden min-w-0 lg:block"}>
-          <StatsDesk pieces={pieces} ads={ads} adsOn={adsOn} lines={brief.lines} openStats={openStats} pinnedStats={pinnedStats} foldStat={foldStat} pinStat={pinStat} />
+          <StatsDesk lang={lang} pieces={pieces} ads={ads} adsOn={adsOn} lines={brief.lines} openStats={openStats} pinnedStats={pinnedStats} foldStat={foldStat} pinStat={pinStat} />
         </div>
         <div className={desk === "advisor" ? "min-w-0" : "hidden min-w-0 lg:block"}>
           <AdvisorView
+          lang={lang}
           advice={brief}
           pieces={pieces}
           onOpen={(piece, focus) => { setEditorFocus(focus ?? null); setEditor({ ...piece }); }}
@@ -1070,7 +1084,7 @@ export function House() {
             });
           }}
           onRemove={(piece, reason) => {
-            const note = piece.notes.includes(reason) ? piece.notes : `${piece.notes ? `${piece.notes} · ` : ""}Removed: ${reason}`;
+            const note = piece.notes.includes(reason) ? piece.notes : `${piece.notes ? `${piece.notes} · ` : ""}${t("note.removed", { reason })}`;
             void savePiece({ data: { ...piece, status: "archived", wasSold: false, saleCents: null, soldOn: null, notes: note } }).then((saved) => {
               if (saved) {
                 setPieces((current) => current.map((item) => (item.id === saved.id ? saved : item)));
@@ -1090,7 +1104,7 @@ export function House() {
       </div>
       </>
     );
-  }, [desk, exporting, pieces, ads, adsOn, brief, openStats, pinnedStats, foldStat, pinStat]);
+  }, [desk, exporting, pieces, ads, adsOn, brief, openStats, pinnedStats, foldStat, pinStat, lang]);
 
   return (
     <main
@@ -1116,18 +1130,18 @@ export function House() {
             shelf grows taller and the cluster reads at a glance. The Tron beams anchor to the
             shelf's bottom edge, so they follow the taller shelf on their own. */}
         <div className="flex flex-col items-end gap-1.5">
-          <button type="button" aria-label="Add" className="press grid size-9 place-items-center rounded-full bg-accent text-accent-ink" onClick={() => { setFilterOpen(false); setEditorFocus(null); setEditor(emptyInput()); }}>
+          <button type="button" aria-label={t("header.add")} className="press grid size-9 place-items-center rounded-full bg-accent text-accent-ink" onClick={() => { setFilterOpen(false); setEditorFocus(null); setEditor(emptyInput()); }}>
             <Plus className="size-4" strokeWidth={1.75} />
           </button>
           <div className="flex items-center gap-1.5">
-            <button type="button" aria-label={isLightTheme(theme) ? "Night" : "Day"} className="press grid size-7 place-items-center rounded-full border border-line" onClick={flipTheme}>
+            <button type="button" aria-label={isLightTheme(theme) ? t("header.night") : t("header.day")} className="press grid size-7 place-items-center rounded-full border border-line" onClick={flipTheme}>
               {isLightTheme(theme) ? <Moon className="size-3" strokeWidth={1.75} /> : <Sun className="size-3" strokeWidth={1.75} />}
             </button>
             {/* Export lives in the header (1.1.3, Faro's placement) — since 1.2.6 on the lower row. */}
-            <button type="button" aria-label="Export a report" aria-haspopup="dialog" className="press grid size-7 place-items-center rounded-full border border-line" onClick={() => setExporting(true)}>
+            <button type="button" aria-label={t("header.export")} aria-haspopup="dialog" className="press grid size-7 place-items-center rounded-full border border-line" onClick={() => setExporting(true)}>
               <FileDown className="size-3" strokeWidth={1.75} />
             </button>
-            <button type="button" aria-label="Settings" className="press grid size-7 place-items-center rounded-full border border-line" onClick={() => { setFilterOpen(false); setOpenSettings([]); setWipe([]); setWipeAsk(false); setSettings(true); }}>
+            <button type="button" aria-label={t("view.settings")} className="press grid size-7 place-items-center rounded-full border border-line" onClick={() => { setFilterOpen(false); setOpenSettings([]); setWipe([]); setWipeAsk(false); setSettings(true); }}>
               <SlidersHorizontal className="size-3" strokeWidth={1.75} />
             </button>
           </div>
@@ -1150,8 +1164,8 @@ export function House() {
 
       {undo && !undoOpen && (undo.what === "Sold" || undo.what === "Delete" || undo.what === "Remove") ? (
         <div className="fixed inset-x-0 bottom-[4.75rem] z-20 mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-4 lg:max-w-none lg:px-8">
-          <p className="min-w-0 rounded-full border border-line bg-panel px-4 py-2 text-sm text-ink">{undo.name} · {undo.what}</p>
-          <button type="button" className="press h-10 shrink-0 rounded-full border border-line bg-canvas px-4 text-sm text-ink" onClick={() => setUndoOpen(true)}>Reverse</button>
+          <p className="min-w-0 rounded-full border border-line bg-panel px-4 py-2 text-sm text-ink">{undo.name} · {undo.what === "Sold" ? t("status.sold") : undo.what === "Delete" ? t("undo.deleted") : t("undo.removed")}</p>
+          <button type="button" className="press h-10 shrink-0 rounded-full border border-line bg-canvas px-4 text-sm text-ink" onClick={() => setUndoOpen(true)}>{t("undo.reverse")}</button>
         </div>
       ) : null}
 
@@ -1161,20 +1175,21 @@ export function House() {
           value={view}
           onChange={setView}
           options={[
-            { id: "floor", label: "Main" },
-            { id: "history", label: "History" },
-            { id: "ledger", label: "Stats" },
+            { id: "floor", label: t("nav.main") },
+            { id: "history", label: t("view.history") },
+            { id: "ledger", label: t("view.statistics") },
           ]}
         />
       </nav>
 
       {editor ? (
         <Editor
+          lang={lang}
           initial={editor}
           focus={editorFocus}
           onClose={() => { setEditor(null); setEditorFocus(null); }}
           known={pieces}
-          onSave={(input) => void onSave(input).catch((err: unknown) => setNotice(err instanceof Error ? err.message : "Could not save"))}
+          onSave={(input) => void onSave(input).catch((err: unknown) => setNotice(err instanceof Error ? err.message : t("editor.couldNotSave")))}
           onImport={
             editor.id
               ? undefined
@@ -1183,7 +1198,7 @@ export function House() {
                   // the write returned, and a failed write shows as a failure there.
                   const res = await importPieces({ data: rows });
                   setPieces(res.pieces);
-                  setNotice(`Imported ${res.imported} rows`);
+                  setNotice(t(res.imported === 1 ? "import.rowsOne" : "import.rowsOther", { n: res.imported }));
                   if (rows.every((row) => row.status === "archived")) setChip("archived");
                   setView("floor");
                   return res.imported;
@@ -1195,7 +1210,7 @@ export function House() {
               : async (payload) => {
                   const res = await applyTrayImport({ data: { add: payload.add, update: payload.update } });
                   setPieces(res.pieces);
-                  setNotice(`Imported ${res.added} ${res.added === 1 ? "piece" : "pieces"}${res.updated ? ` · completed ${res.updated} already on the floor` : ""}`);
+                  setNotice(`${t(res.added === 1 ? "import.addedOne" : "import.addedOther", { n: res.added })}${res.updated ? t("import.completedPart", { n: res.updated }) : ""}`);
                   setView("floor");
                   return { added: res.added, updated: res.updated };
                 }
@@ -1205,8 +1220,8 @@ export function House() {
 
       {confirmId ? (
         <Overlay onClose={() => setConfirmId(null)}>
-          <p className="font-display text-2xl">Delete this piece?</p>
-          <p className="mt-2 text-sm text-muted">It leaves the floor. Reverse stays up for a few seconds, then it is gone.</p>
+          <p className="font-display text-2xl">{t("delete.title")}</p>
+          <p className="mt-2 text-sm text-muted">{t("delete.body")}</p>
           <div className="mt-5 flex gap-2">
             <button
               type="button"
@@ -1223,10 +1238,10 @@ export function House() {
                 });
               }}
             >
-              Delete
+              {t("common.delete")}
             </button>
             <button type="button" className="press h-11 rounded-full border border-line px-4 text-sm" onClick={() => setConfirmId(null)}>
-              Cancel
+              {t("common.cancel")}
             </button>
           </div>
         </Overlay>
@@ -1237,26 +1252,26 @@ export function House() {
           <p className="font-display text-2xl">{ask.title}</p>
           <p className="mt-2 text-sm text-muted">{ask.detail}</p>
           <div className="mt-5 flex gap-2">
-            <button type="button" className="press h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-ink" onClick={commitAsk}>Confirm</button>
-            <button type="button" className="press h-11 rounded-full border border-line px-4 text-sm" onClick={() => setAsk(null)}>Cancel</button>
+            <button type="button" className="press h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-ink" onClick={commitAsk}>{t("common.confirm")}</button>
+            <button type="button" className="press h-11 rounded-full border border-line px-4 text-sm" onClick={() => setAsk(null)}>{t("common.cancel")}</button>
           </div>
         </Overlay>
       ) : null}
 
       {undoOpen && undo ? (
         <Overlay onClose={() => setUndoOpen(false)}>
-          <p className="font-display text-2xl">{undo.what === "Delete" ? `Add ${undo.name} back?` : undo.what === "Remove" ? `Put ${undo.name} back?` : `Put ${undo.name} back as ${undo.previous.status === "incoming" ? "Incoming" : "Available"}?`}</p>
-          <p className="mt-2 text-sm text-muted">{undo.what === "Delete" ? "It returns as it was before you deleted it." : undo.what === "Remove" ? "It returns as it was before you removed it." : "The sale comes off."}</p>
+          <p className="font-display text-2xl">{undo.what === "Delete" ? t("undo.addBack", { name: undo.name }) : undo.what === "Remove" ? t("undo.putBack", { name: undo.name }) : t("undo.putBackAs", { name: undo.name, status: t(undo.previous.status === "incoming" ? "status.incoming" : "status.available") })}</p>
+          <p className="mt-2 text-sm text-muted">{undo.what === "Delete" ? t("undo.detailDelete") : undo.what === "Remove" ? t("undo.detailRemove") : t("undo.detailSale")}</p>
           <div className="mt-5 flex gap-2">
-            <button type="button" className="press h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-ink" onClick={commitUndo}>{undo.what === "Delete" ? "Add it back" : "Put it back"}</button>
-            <button type="button" className="press h-11 rounded-full border border-line px-4 text-sm" onClick={() => setUndoOpen(false)}>Cancel</button>
+            <button type="button" className="press h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-ink" onClick={commitUndo}>{undo.what === "Delete" ? t("undo.addItBack") : t("undo.putItBack")}</button>
+            <button type="button" className="press h-11 rounded-full border border-line px-4 text-sm" onClick={() => setUndoOpen(false)}>{t("common.cancel")}</button>
           </div>
         </Overlay>
       ) : null}
 
       {settings ? (
         <Overlay onClose={() => setSettings(false)}>
-          <p className="font-display text-2xl">Settings</p>
+          <p className="font-display text-2xl">{t("view.settings")}</p>
           <button
             type="button"
             role="checkbox"
@@ -1267,10 +1282,10 @@ export function House() {
             <span className={`grid size-4 place-items-center rounded border ${SETTING_FOLDS.every((id) => openSettings.includes(id)) ? "border-accent bg-accent text-accent-ink" : "border-line bg-canvas"}`}>
               {SETTING_FOLDS.every((id) => openSettings.includes(id)) ? <Check className="size-3" strokeWidth={2.75} /> : null}
             </span>
-            {SETTING_FOLDS.every((id) => openSettings.includes(id)) ? "Fold" : "Unfold"}
+            {SETTING_FOLDS.every((id) => openSettings.includes(id)) ? t("settings.foldAll") : t("settings.unfoldAll")}
           </button>
           <div className="mt-3 space-y-2">
-            <SettingFold title="Theme" icon={<Palette className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("theme")} onToggle={() => setOpenSettings((current) => current.includes("theme") ? current.filter((id) => id !== "theme") : [...current, "theme"])}>
+            <SettingFold title={t("settings.theme")} icon={<Palette className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("theme")} onToggle={() => setOpenSettings((current) => current.includes("theme") ? current.filter((id) => id !== "theme") : [...current, "theme"])}>
               <div className="grid grid-cols-2 gap-2">
                 {THEMES.map((item) => (
                   <RippleButton
@@ -1290,7 +1305,25 @@ export function House() {
                 ))}
               </div>
             </SettingFold>
-            <SettingFold title="Facebook ads" icon={<Megaphone className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("ads")} onToggle={() => setOpenSettings((current) => current.includes("ads") ? current.filter((id) => id !== "ads") : [...current, "ads"])}>
+            <SettingFold title={t("settings.language")} icon={<Globe className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("lang")} onToggle={() => setOpenSettings((current) => current.includes("lang") ? current.filter((id) => id !== "lang") : [...current, "lang"])}>
+              <div className="grid grid-cols-2 gap-2">
+                {([{ id: "en", label: "English" }, { id: "es", label: "Español" }] as const).map((item) => (
+                  <RippleButton
+                    key={item.id}
+                    aria-pressed={lang === item.id}
+                    onClick={() => {
+                      setLang(item.id);
+                      void saveLang({ data: item.id });
+                    }}
+                    className={`press flex items-center gap-3 rounded-2xl border px-3 py-2 text-left text-sm ${lang === item.id ? "border-accent bg-accent-soft" : "border-line"}`}
+                  >
+                    {item.label}
+                  </RippleButton>
+                ))}
+              </div>
+              <p className="mt-2 text-xs leading-relaxed text-muted">{t("settings.language.note")}</p>
+            </SettingFold>
+            <SettingFold title={t("settings.ads")} icon={<Megaphone className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("ads")} onToggle={() => setOpenSettings((current) => current.includes("ads") ? current.filter((id) => id !== "ads") : [...current, "ads"])}>
               <button
                 type="button"
                 aria-pressed={adsOn}
@@ -1302,13 +1335,13 @@ export function House() {
                 className="press flex w-full items-center justify-between gap-3 rounded-2xl border border-line px-4 py-3 text-left"
               >
                 <span>
-                  <span className="block text-sm">Facebook ads</span>
-                  <span className="mt-0.5 block text-xs text-muted">Tracking in History and Statistics. On until you turn it off.</span>
+                  <span className="block text-sm">{t("settings.ads")}</span>
+                  <span className="mt-0.5 block text-xs text-muted">{t("settings.ads.note")}</span>
                 </span>
-                <span className={`grid h-7 w-12 place-items-center rounded-full text-xs ${adsOn ? "text-[#f6f3ec]" : "bg-canvas text-muted"}`} style={adsOn ? { background: litTone("#7d5a86") } : undefined}>{adsOn ? "On" : "Off"}</span>
+                <span className={`grid h-7 w-12 place-items-center rounded-full text-xs ${adsOn ? "text-[#f6f3ec]" : "bg-canvas text-muted"}`} style={adsOn ? { background: litTone("#7d5a86") } : undefined}>{adsOn ? t("common.on") : t("common.off")}</span>
               </button>
             </SettingFold>
-            <SettingFold title="Backup" icon={<DatabaseBackup className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("backup")} onToggle={() => setOpenSettings((current) => current.includes("backup") ? current.filter((id) => id !== "backup") : [...current, "backup"])}>
+            <SettingFold title={t("settings.backup")} icon={<DatabaseBackup className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("backup")} onToggle={() => setOpenSettings((current) => current.includes("backup") ? current.filter((id) => id !== "backup") : [...current, "backup"])}>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -1323,10 +1356,10 @@ export function House() {
                     URL.revokeObjectURL(url);
                   }}
                 >
-                  Export
+                  {t("backup.export")}
                 </button>
                 <label className="press inline-flex h-11 cursor-pointer items-center rounded-full border border-line px-4 text-sm">
-                  Restore
+                  {t("backup.restore")}
                   <input
                     type="file"
                     accept="application/json"
@@ -1340,13 +1373,13 @@ export function House() {
                         try {
                           data = JSON.parse(text);
                         } catch {
-                          throw new Error("That file is not a Ventory backup");
+                          throw new Error(t("backup.notBackup"));
                         }
                         const next = await replaceFloor({ data });
                         setPieces(next);
                         void loadFloor().then((floor) => setChecks(floor.checkpoints)).catch(() => {});
-                        setNotice("Backup restored");
-                      }).catch((err: unknown) => setNotice(err instanceof Error ? err.message : "Could not import"));
+                        setNotice(t("backup.restored"));
+                      }).catch((err: unknown) => setNotice(err instanceof Error ? err.message : t("backup.couldNotImport")));
                     }}
                   />
                 </label>
@@ -1356,11 +1389,11 @@ export function House() {
                   onClick={() => {
                     void createCheckpoint({ data: `Manual ${todayISO()}` }).then((next) => {
                       setChecks(next);
-                      setNotice("Backup saved");
+                      setNotice(t("backup.saved"));
                     });
                   }}
                 >
-                  Save backup
+                  {t("backup.save")}
                 </button>
               </div>
               {checks.length ? (
@@ -1371,8 +1404,8 @@ export function House() {
                         <span className="min-w-0">
                           <span className="block truncate text-sm">{check.label}</span>
                           <span className="block text-xs text-faint">
-                            {new Date(check.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                            {check.count != null ? ` · ${check.count} ${check.count === 1 ? "piece" : "pieces"}` : ""}
+                            {new Date(check.createdAt).toLocaleDateString(lang === "es" ? "es" : "en-US", { month: "short", day: "numeric", year: "numeric" })}
+                            {check.count != null ? ` · ${check.count} ${check.count === 1 ? t("common.piece") : t("common.pieces")}` : ""}
                           </span>
                         </span>
                         <button
@@ -1380,50 +1413,50 @@ export function House() {
                           className="press h-9 shrink-0 rounded-full border border-line px-3 text-sm"
                           onClick={() => setCheckAsk({ id: check.id, label: check.label })}
                         >
-                          Restore
+                          {t("backup.restore")}
                         </button>
                       </li>
                     ))}
                   </ul>
-                  <p className="mt-2 text-xs text-faint">Only the newest 12 backups are kept.</p>
+                  <p className="mt-2 text-xs text-faint">{t("backup.kept12")}</p>
                 </>
               ) : null}
             </SettingFold>
-            <SettingFold title="Sample floor" icon={<LayoutGrid className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("sample")} onToggle={() => setOpenSettings((current) => current.includes("sample") ? current.filter((id) => id !== "sample") : [...current, "sample"])}>
+            <SettingFold title={t("settings.sample")} icon={<LayoutGrid className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("sample")} onToggle={() => setOpenSettings((current) => current.includes("sample") ? current.filter((id) => id !== "sample") : [...current, "sample"])}>
               <p className="text-sm">
                 {sampleComplete
-                  ? "On — the complete sample floor is on your shelf."
+                  ? t("sample.stateComplete")
                   : legacyPieces.length && !samplePieces.length
-                    ? "An older sample is on your shelf."
+                    ? t("sample.stateLegacy")
                     : sampleOn
-                      ? "On — part of the sample floor is on your shelf."
-                      : "Off — no sample pieces on your shelf."}
+                      ? t("sample.statePart")
+                      : t("sample.stateOff")}
               </p>
               <p className="mt-1 text-xs leading-relaxed text-muted">
                 {legacyPieces.length && !samplePieces.length
-                  ? `${legacyPieces.length} pieces from the first, smaller sample floor (${legacyPieces.map((piece) => piece.name).join(", ")}). That sample was loaded before samples were tagged, so no button could find it again. Updating replaces those pieces with the complete set — your own pieces are never touched.`
+                  ? t("sample.bodyLegacy", { n: legacyPieces.length, names: legacyPieces.map((piece) => piece.name).join(", ") })
                   : sampleOn
-                    ? `${samplePieces.length + legacyPieces.length} example ${samplePieces.length + legacyPieces.length === 1 ? "piece" : "pieces"} and ${sampleAds.length} example ad ${sampleAds.length === 1 ? "record" : "records"} fill Main, History, Statistics and the Advisor so you can see how everything behaves. Only the examples ever change here — your own pieces and ads stay exactly as they are.`
-                    : `Example pieces fill Main, History, Statistics and the Advisor so you can see how everything behaves — ${sampleSet.pieces} pieces and ${sampleSet.ads} ad records, with sales and dates spread across the year. Your own pieces are never touched, and you can turn the sample off here anytime.`}
+                    ? t("sample.bodyOn", { n: samplePieces.length + legacyPieces.length, pieceWord: samplePieces.length + legacyPieces.length === 1 ? t("common.piece") : t("common.pieces"), ads: sampleAds.length, adWord: sampleAds.length === 1 ? t("common.record") : t("common.records") })
+                    : t("sample.bodyOff", { pieces: sampleSet.pieces, ads: sampleSet.ads })}
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 {!sampleComplete ? (
                   <button type="button" className="press h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-ink" onClick={loadSampleFloor}>
-                    {sampleOn ? "Update to the complete sample floor" : "Load the sample floor"}
+                    {sampleOn ? t("sample.update") : t("sample.load")}
                   </button>
                 ) : null}
                 {sampleOn ? (
                   <button type="button" className="press h-11 rounded-full border border-danger px-4 text-sm text-danger" onClick={() => setSampleAsk(true)}>
-                    Remove sample floor
+                    {t("sample.remove")}
                   </button>
                 ) : null}
               </div>
             </SettingFold>
-            <SettingFold title="Security" icon={<ShieldCheck className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("security")} onToggle={() => setOpenSettings((current) => current.includes("security") ? current.filter((id) => id !== "security") : [...current, "security"])}>
+            <SettingFold title={t("settings.security")} icon={<ShieldCheck className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("security")} onToggle={() => setOpenSettings((current) => current.includes("security") ? current.filter((id) => id !== "security") : [...current, "security"])}>
               <FingerprintControl />
             </SettingFold>
-            <SettingFold title="Remove data" icon={<Trash2 className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("remove")} onToggle={() => setOpenSettings((current) => current.includes("remove") ? current.filter((id) => id !== "remove") : [...current, "remove"])}>
-              <p className="mb-3 text-xs leading-relaxed text-muted">Choose what to take off the shelf. Nothing is removed until you confirm.</p>
+            <SettingFold title={t("settings.remove")} icon={<Trash2 className="size-[18px]" strokeWidth={1.75} />} open={openSettings.includes("remove")} onToggle={() => setOpenSettings((current) => current.includes("remove") ? current.filter((id) => id !== "remove") : [...current, "remove"])}>
+              <p className="mb-3 text-xs leading-relaxed text-muted">{t("remove.note")}</p>
               <div className="space-y-1">
                 {wipeRows.map((row) => {
                   const on = wipe.includes(row.id);
@@ -1453,7 +1486,7 @@ export function House() {
                 onClick={() => setWipeAsk(true)}
                 className="press mt-3 h-11 rounded-full border border-danger px-4 text-sm text-danger disabled:opacity-40"
               >
-                Remove selected
+                {t("remove.selected")}
               </button>
             </SettingFold>
           </div>
@@ -1461,16 +1494,16 @@ export function House() {
             <AccountCard />
             <SignOutCard />
           </div>
-          <p className="mt-4 pb-1 text-center text-xs text-faint">Ventory · Version {APP_VERSION}</p>
+          <p className="mt-4 pb-1 text-center text-xs text-faint">{t("settings.version", { v: APP_VERSION })}</p>
         </Overlay>
       ) : null}
 
       {sampleAsk ? (
         <Overlay onClose={() => setSampleAsk(false)}>
-          <p className="font-display text-2xl">Remove the sample floor?</p>
+          <p className="font-display text-2xl">{t("sample.removeTitle")}</p>
           <p className="mt-3 text-sm leading-relaxed text-muted">
-            {samplePieces.length + legacyPieces.length} example {samplePieces.length + legacyPieces.length === 1 ? "piece" : "pieces"} and {sampleAds.length} example ad {sampleAds.length === 1 ? "record" : "records"} go. Only the examples — your own pieces and ads stay exactly as they are, and you can load the sample floor again whenever you like, right here in Settings.
-            {legacyPieces.length ? ` The older pieces it removes are: ${legacyPieces.map((piece) => piece.name).join(", ")}.` : ""}
+            {t("sample.removeBody", { n: samplePieces.length + legacyPieces.length, pieceWord: samplePieces.length + legacyPieces.length === 1 ? t("common.piece") : t("common.pieces"), ads: sampleAds.length, adWord: sampleAds.length === 1 ? t("common.record") : t("common.records") })}
+            {legacyPieces.length ? t("sample.removeLegacy", { names: legacyPieces.map((piece) => piece.name).join(", ") }) : ""}
           </p>
           <div className="mt-5 flex flex-wrap gap-2">
             <button
@@ -1481,25 +1514,25 @@ export function House() {
                   setPieces(next.pieces);
                   setAds(next.ads);
                   setSampleAsk(false);
-                  setNotice(`Removed ${next.removedPieces} example ${next.removedPieces === 1 ? "piece" : "pieces"}`);
+                  setNotice(t(next.removedPieces === 1 ? "sample.removedOne" : "sample.removedOther", { n: next.removedPieces }));
                 }).catch((err: unknown) => {
                   setSampleAsk(false);
-                  setNotice(err instanceof Error ? err.message : "Could not remove the sample floor");
+                  setNotice(err instanceof Error ? err.message : t("sample.couldNotRemove"));
                 });
               }}
             >
-              Remove
+              {t("common.remove")}
             </button>
-            <button type="button" className="press h-11 rounded-full border border-line px-4 text-sm" onClick={() => setSampleAsk(false)}>Cancel</button>
+            <button type="button" className="press h-11 rounded-full border border-line px-4 text-sm" onClick={() => setSampleAsk(false)}>{t("common.cancel")}</button>
           </div>
         </Overlay>
       ) : null}
 
       {checkAsk ? (
         <Overlay onClose={() => setCheckAsk(null)}>
-          <p className="font-display text-2xl">Restore this backup?</p>
+          <p className="font-display text-2xl">{t("backup.restoreTitle")}</p>
           <p className="mt-3 text-sm leading-relaxed text-muted">
-            Your floor goes back to &ldquo;{checkAsk.label}&rdquo;. What you have now is first saved as a new backup, so this restore can be walked back too.
+            {t("backup.restoreBody", { label: checkAsk.label })}
           </p>
           <div className="mt-5 flex flex-wrap gap-2">
             <button
@@ -1516,20 +1549,20 @@ export function House() {
                     setMarks(floor.marks);
                     setChecks(floor.checkpoints);
                   }).catch(() => {});
-                  setNotice("Backup restored");
-                }).catch((err: unknown) => setNotice(err instanceof Error ? err.message : "Could not restore that backup"));
+                  setNotice(t("backup.restored"));
+                }).catch((err: unknown) => setNotice(err instanceof Error ? err.message : t("backup.couldNotRestore")));
               }}
             >
-              Restore
+              {t("backup.restore")}
             </button>
-            <button type="button" className="press h-11 rounded-full border border-line px-4 text-sm" onClick={() => setCheckAsk(null)}>Cancel</button>
+            <button type="button" className="press h-11 rounded-full border border-line px-4 text-sm" onClick={() => setCheckAsk(null)}>{t("common.cancel")}</button>
           </div>
         </Overlay>
       ) : null}
 
       {wipeAsk ? (
         <Overlay onClose={() => { if (!wiping) setWipeAsk(false); }}>
-          <p className="font-display text-2xl">Remove this?</p>
+          <p className="font-display text-2xl">{t("remove.title")}</p>
           <ul className="mt-3 space-y-1 text-sm">
             {wipePicked.map((row) => (
               <li key={row.id} className="flex justify-between gap-3">
@@ -1538,10 +1571,10 @@ export function House() {
               </li>
             ))}
           </ul>
-          <p className="mt-3 text-sm leading-relaxed text-muted">Only what is listed. Theme, account, and everything unchecked stay. This cannot be undone here.</p>
+          <p className="mt-3 text-sm leading-relaxed text-muted">{t("remove.onlyListed")}</p>
           <div className="mt-5 flex flex-wrap gap-2">
-            <button type="button" disabled={wiping} className="press h-11 rounded-full border border-danger bg-danger-soft px-4 text-sm font-medium text-danger disabled:opacity-40" onClick={commitWipe}>{wiping ? "Removing…" : "Remove"}</button>
-            <button type="button" disabled={wiping} className="press h-11 rounded-full border border-line px-4 text-sm" onClick={() => setWipeAsk(false)}>Cancel</button>
+            <button type="button" disabled={wiping} className="press h-11 rounded-full border border-danger bg-danger-soft px-4 text-sm font-medium text-danger disabled:opacity-40" onClick={commitWipe}>{wiping ? t("remove.removing") : t("common.remove")}</button>
+            <button type="button" disabled={wiping} className="press h-11 rounded-full border border-line px-4 text-sm" onClick={() => setWipeAsk(false)}>{t("common.cancel")}</button>
           </div>
         </Overlay>
       ) : null}
@@ -1559,10 +1592,10 @@ function readStatList(key: string) {
   }
 }
 
-function barsOf(pieces: Piece[], key: (piece: Piece) => string) {
+function barsOf(pieces: Piece[], key: (piece: Piece) => string, lang: Lang = "en") {
   const map = new Map<string, number>();
   for (const piece of pieces) {
-    const label = key(piece).trim() || "Unlabeled";
+    const label = key(piece).trim() || tx(lang, "stats.unlabeled");
     map.set(label, (map.get(label) ?? 0) + piece.qty);
   }
   return [...map.entries()]
@@ -1577,15 +1610,15 @@ function shortMoney(cents: number) {
   return `$${Math.round(amount)}`;
 }
 
-function SalesBoard({ title, rows, bare }: { title: string; rows: SaleLine[]; bare?: boolean }) {
+function SalesBoard({ title, rows, bare, lang = "en" }: { title: string; rows: SaleLine[]; bare?: boolean; lang?: Lang }) {
   return (
     <div className={bare ? "" : "framed mt-4 rounded-3xl bg-panel p-4"}>
       {bare ? null : <p className="text-xs font-medium tracking-wide text-faint uppercase">{title}</p>}
-      {rows.length === 0 ? <p className={`${bare ? "" : "mt-3 "}text-sm text-muted`}>No sales to compare yet.</p> : bare ? (
+      {rows.length === 0 ? <p className={`${bare ? "" : "mt-3 "}text-sm text-muted`}>{tx(lang, "board.noSales")}</p> : bare ? (
         <>
           <div className="mb-2 flex items-center gap-4 text-[11px] text-muted" aria-hidden>
-            <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-3 rounded-full" style={{ background: `color-mix(in srgb, var(--v-muted) 42%, var(--v-panel-2))` }} />Came in</span>
-            <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-3 rounded-full" style={{ background: litTone("#5f8f72") }} />Left after cost</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-3 rounded-full" style={{ background: `color-mix(in srgb, var(--v-muted) 42%, var(--v-panel-2))` }} />{tx(lang, "board.cameIn")}</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-3 rounded-full" style={{ background: litTone("#5f8f72") }} />{tx(lang, "board.leftAfterCost")}</span>
           </div>
           <ul className="border-t border-line">
             {rows.map((row, index) => {
@@ -1604,7 +1637,7 @@ function SalesBoard({ title, rows, bare }: { title: string; rows: SaleLine[]; ba
                       <span className="lit-bar block h-full rounded-full" style={{ width: `${kept * 100}%`, background: row.profit < 0 ? "var(--v-danger)" : green, ["--glow" as string]: green }} />
                     </span>
                   </span>
-                  <span className="mt-1 block text-xs tabular-nums text-muted">{row.count} sold · {cash(row.revenue)} in{keptShare != null ? ` · ${Math.round(keptShare * 100)}% kept` : row.revenue > 0 ? " · cost not entered" : ""}{row.unpriced ? ` · ${row.unpriced} with no price` : ""}</span>
+                  <span className="mt-1 block text-xs tabular-nums text-muted">{tx(lang, "board.line", { count: row.count, soldWord: tx(lang, row.count === 1 ? "board.soldOne" : "board.soldOther"), amount: cash(row.revenue), suffix: `${keptShare != null ? tx(lang, "board.keptSuffix", { pct: Math.round(keptShare * 100) }) : row.revenue > 0 ? tx(lang, "board.costSuffix") : ""}${row.unpriced ? tx(lang, "board.unpricedSuffix", { n: row.unpriced }) : ""}` })}</span>
                 </li>
               );
             })}
@@ -1613,17 +1646,17 @@ function SalesBoard({ title, rows, bare }: { title: string; rows: SaleLine[]; ba
       ) : (
         <>
           <div className={`${bare ? "" : "mt-3 "}grid grid-cols-[1fr_2.75rem_4.75rem_4.75rem] gap-2 border-b border-line pb-2 text-[10px] font-medium tracking-widest text-faint uppercase`}>
-            <span>Product</span>
-            <span className="text-right">Sold</span>
-            <span className="text-right">In</span>
-            <span className="text-right">Left</span>
+            <span>{tx(lang, "board.product")}</span>
+            <span className="text-right">{tx(lang, "status.sold")}</span>
+            <span className="text-right">{tx(lang, "board.in")}</span>
+            <span className="text-right">{tx(lang, "board.left")}</span>
           </div>
           <ul className="divide-y divide-line">
             {rows.map((row, index) => (
               <li key={row.name} className="row-in grid grid-cols-[1fr_2.75rem_4.75rem_4.75rem] items-baseline gap-2 py-2 text-sm" style={{ animationDelay: `${Math.min(index * 45, 270)}ms` }}>
                 <span className="min-w-0">
                   <span className="block">{row.name}</span>
-                  {row.unpriced ? <span className="block text-[10px] text-muted">{row.unpriced} no price</span> : null}
+                  {row.unpriced ? <span className="block text-[10px] text-muted">{tx(lang, "board.noPrice", { n: row.unpriced })}</span> : null}
                 </span>
                 <span className="text-right tabular-nums">{row.count}</span>
                 <span className="text-right tabular-nums">{money(row.revenue)}</span>
@@ -1637,7 +1670,7 @@ function SalesBoard({ title, rows, bare }: { title: string; rows: SaleLine[]; ba
   );
 }
 
-function Ring({ title, parts, bare }: { title: string; parts: { label: string; value: number; color: string }[]; bare?: boolean }) {
+function Ring({ title, parts, bare, lang = "en" }: { title: string; parts: { label: string; value: number; color: string }[]; bare?: boolean; lang?: Lang }) {
   const shown = parts.filter((part) => part.value > 0).map((part) => ({ ...part, color: litTone(part.color) }));
   const total = shown.reduce((sum, part) => sum + part.value, 0);
   const radius = 42;
@@ -1646,7 +1679,7 @@ function Ring({ title, parts, bare }: { title: string; parts: { label: string; v
   return (
     <div className={bare ? "" : "rounded-3xl border border-line bg-panel p-4"}>
       {bare ? null : <p className="text-xs font-medium tracking-wide text-faint uppercase">{title}</p>}
-      {total === 0 ? <p className={`${bare ? "" : "mt-3 "}text-sm text-muted`}>Nothing to measure yet.</p> : (
+      {total === 0 ? <p className={`${bare ? "" : "mt-3 "}text-sm text-muted`}>{tx(lang, "stats.nothingMeasure")}</p> : (
         <div className={`${bare ? "" : "mt-3 "}flex items-center gap-4`}>
           <div className="relative size-24 shrink-0">
             <svg viewBox="0 0 120 120" className="size-24 -rotate-90">
@@ -1699,13 +1732,13 @@ function Ring({ title, parts, bare }: { title: string; parts: { label: string; v
   );
 }
 
-function Columns({ title, rows, empty }: { title: string; rows: { label: string; value: number }[]; empty?: string }) {
+function Columns({ title, rows, empty, lang = "en" }: { title: string; rows: { label: string; value: number }[]; empty?: string; lang?: Lang }) {
   const shown = rows.filter((row) => row.value > 0);
   const peak = Math.max(1, ...shown.map((row) => row.value));
   return (
     <div className="rounded-3xl border border-line bg-panel p-4">
       <p className="text-xs font-medium tracking-wide text-faint uppercase">{title}</p>
-      {shown.length === 0 ? <p className="mt-3 text-sm text-muted">{empty ?? "Nothing to measure yet."}</p> : (
+      {shown.length === 0 ? <p className="mt-3 text-sm text-muted">{empty ?? tx(lang, "stats.nothingMeasure")}</p> : (
         <ul className="mt-3 space-y-2.5">
           {shown.map((row, index) => (
             <li key={row.label} className="row-in flex items-center gap-3 text-sm" style={{ animationDelay: `${Math.min(index * 45, 270)}ms` }}>
@@ -1732,6 +1765,7 @@ function ViewBar({
   open,
   onToggle,
   onKind,
+  lang = "en",
 }: {
   face: Face;
   cols: 2 | 3 | 4;
@@ -1742,11 +1776,12 @@ function ViewBar({
   open: boolean;
   onToggle: () => void;
   onKind: (id: string) => void;
+  lang?: Lang;
 }) {
   return (
     <div className="relative mt-3 flex items-center gap-4">
       <RippleButton
-        aria-label="Filter products"
+        aria-label={tx(lang, "viewbar.filter")}
         aria-expanded={open}
         onClick={onToggle}
         className={`press grid size-10 shrink-0 place-items-center rounded-2xl border ${kind !== "all" ? "border-accent bg-accent text-accent-ink" : "border-line bg-canvas text-ink"}`}
@@ -1755,10 +1790,10 @@ function ViewBar({
       </RippleButton>
       <div className="grid h-10 min-w-0 flex-1 grid-cols-4 rounded-2xl border border-line bg-canvas p-0.5">
         {([
-          ["large", "Large", Rows2],
-          ["medium", "Medium", RectangleHorizontal],
-          ["list", "List", List],
-          ["grid", cols === 2 ? "Grid" : `Grid ×${cols}`, LayoutGrid],
+          ["large", tx(lang, "viewbar.large"), Rows2],
+          ["medium", tx(lang, "viewbar.medium"), RectangleHorizontal],
+          ["list", tx(lang, "viewbar.list"), List],
+          ["grid", cols === 2 ? tx(lang, "viewbar.grid") : `${tx(lang, "viewbar.grid")} ×${cols}`, LayoutGrid],
         ] as const).map(([id, label, Icon]) => {
           const on = face === id;
           return (
@@ -1787,9 +1822,9 @@ function ViewBar({
             className={`press block h-10 w-full rounded-xl px-3 text-left text-sm ${kind === "all" ? "bg-accent-soft" : ""}`}
             onClick={() => onKind("all")}
           >
-            All products
+            {tx(lang, "viewbar.allProducts")}
           </RippleButton>
-          {kinds.length === 0 ? <p className="px-3 py-2 text-sm text-muted">No product types yet.</p> : kinds.map((item) => (
+          {kinds.length === 0 ? <p className="px-3 py-2 text-sm text-muted">{tx(lang, "viewbar.noTypes")}</p> : kinds.map((item) => (
             <RippleButton
               key={item.id}
               aria-pressed={kind === item.id}
@@ -1955,7 +1990,7 @@ function SettingFold({ title, icon, open, onToggle, children }: { title: string;
    (.piece), an opened fold's body rises (.row-in), and the Columns and Ads
    rows rise with the same stagger SalesBoard rows already used; bars, columns
    and ring arcs kept their 1.0.6 grows and nothing new counts or fades. */
-function StatFold({ title, open, pinned, onToggle, onPin, line, children, shot }: { title: string; open: boolean; pinned: boolean; onToggle: () => void; onPin: () => void; line?: string; children: ReactNode; shot?: string }) {
+function StatFold({ title, open, pinned, onToggle, onPin, line, children, shot, lang = "en" }: { title: string; open: boolean; pinned: boolean; onToggle: () => void; onPin: () => void; line?: string; children: ReactNode; shot?: string; lang?: Lang }) {
   return (
     <section data-shot={shot} className="rounded-3xl border border-line bg-panel">
       <div className="flex items-center gap-1 pr-2">
@@ -1966,7 +2001,7 @@ function StatFold({ title, open, pinned, onToggle, onPin, line, children, shot }
             {!open && line ? <span className="mt-0.5 block text-xs leading-snug text-muted">{line}</span> : null}
           </span>
         </button>
-        <button type="button" aria-label={pinned ? "Unpin" : "Pin open"} aria-pressed={pinned} onClick={onPin} className={`press grid size-8 shrink-0 place-items-center self-center rounded-full ${pinned ? "text-accent" : "text-muted"}`}>
+        <button type="button" aria-label={pinned ? tx(lang, "stats.unpin") : tx(lang, "stats.pinOpen")} aria-pressed={pinned} onClick={onPin} className={`press grid size-8 shrink-0 place-items-center self-center rounded-full ${pinned ? "text-accent" : "text-muted"}`}>
           <Pin className="size-4" strokeWidth={1.75} fill={pinned ? "currentColor" : "none"} />
         </button>
       </div>
@@ -2054,15 +2089,15 @@ function Stat({ label, value, pressed, onClick }: { label: string; value: string
   );
 }
 
-function Performance({ pieces, focus }: { pieces: Piece[]; focus?: "revenue" | "profit" }) {
+function Performance({ pieces, focus, lang = "en" }: { pieces: Piece[]; focus?: "revenue" | "profit"; lang?: Lang }) {
   const [grain, setGrain] = useState<Grain>("month");
-  const rows = periodsOf(pieces, grain);
+  const rows = periodsOf(pieces, grain, lang);
   const peak = Math.max(1, ...rows.flatMap((row) => [Math.max(0, row.revenue), Math.max(0, row.profit)]));
   const shown = (row: { revenue: number; profit: number }) => (focus === "revenue" ? [["In", row.revenue]] : focus === "profit" ? [["Left", row.profit]] : [["In", row.revenue], ["Left", row.profit]]) as [string, number][];
   return (
     <div className="rounded-3xl border border-line bg-panel p-4">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-medium tracking-wide text-faint uppercase">{focus === "revenue" ? "Revenue" : focus === "profit" ? "Profit" : "Performance"}</p>
+        <p className="text-xs font-medium tracking-wide text-faint uppercase">{focus === "revenue" ? tx(lang, "floor.revenue") : focus === "profit" ? tx(lang, "floor.profit") : tx(lang, "stats.performance")}</p>
         <div className="grid w-44 grid-cols-3 gap-1">
           {(["week", "month", "year"] as const).map((id) => (
             <button
@@ -2070,19 +2105,19 @@ function Performance({ pieces, focus }: { pieces: Piece[]; focus?: "revenue" | "
               type="button"
               aria-pressed={grain === id}
               onClick={() => setGrain(id)}
-              className={`press h-8 rounded-full text-xs capitalize ${grain === id ? "bg-accent text-accent-ink" : "text-muted"}`}
+              className={`press h-8 rounded-full text-xs ${grain === id ? "bg-accent text-accent-ink" : "text-muted"}`}
             >
-              {id}
+              {tx(lang, id === "week" ? "stats.grainWeek" : id === "month" ? "stats.grainMonth" : "stats.grainYear")}
             </button>
           ))}
         </div>
       </div>
-      {rows.length === 0 ? <p className="mt-4 text-sm text-muted">No dated sales yet.</p> : (
+      {rows.length === 0 ? <p className="mt-4 text-sm text-muted">{tx(lang, "stats.noDatedSales")}</p> : (
         <>
           {focus ? null : (
             <div className="mt-3 flex gap-4 text-[11px] text-muted">
-              <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full" style={{ background: litTone("#b08a3e") }} /> In</span>
-              <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full" style={{ background: litTone("#5f8f72") }} /> Left</span>
+              <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full" style={{ background: litTone("#b08a3e") }} /> {tx(lang, "board.in")}</span>
+              <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full" style={{ background: litTone("#5f8f72") }} /> {tx(lang, "board.left")}</span>
             </div>
           )}
           <div className="mt-3 overflow-x-auto">
@@ -2119,9 +2154,9 @@ function Performance({ pieces, focus }: { pieces: Piece[]; focus?: "revenue" | "
   );
 }
 
-function LatestSales({ pieces, onOpen }: { pieces: Piece[]; onOpen: (piece: Piece) => void }) {
+function LatestSales({ pieces, onOpen, lang = "en" }: { pieces: Piece[]; onOpen: (piece: Piece) => void; lang?: Lang }) {
   const latest = pieces.filter(isSale).slice().sort((a, b) => (b.soldOn || "").localeCompare(a.soldOn || "")).slice(0, 6);
-  if (!latest.length) return <p className="text-sm text-muted">No sales yet.</p>;
+  if (!latest.length) return <p className="text-sm text-muted">{tx(lang, "stats.noSalesYet")}</p>;
   return (
     <ul className="space-y-2">
       {latest.map((piece) => {
@@ -2131,10 +2166,10 @@ function LatestSales({ pieces, onOpen }: { pieces: Piece[]; onOpen: (piece: Piec
             <button type="button" onClick={() => onOpen(piece)} className="press flex w-full items-center justify-between gap-3 rounded-2xl border border-line bg-panel px-4 py-3 text-left">
               <span className="min-w-0">
                 <span className="block truncate text-sm font-medium">{piece.name}</span>
-                <span className="block text-xs text-muted">{piece.soldOn ?? "No date"}{piece.usSize ? ` · US ${halfSize(piece.usSize)}` : ""}</span>
+                <span className="block text-xs text-muted">{piece.soldOn ?? tx(lang, "stats.noDate")}{piece.usSize ? ` · US ${halfSize(piece.usSize)}` : ""}</span>
               </span>
               <span className="shrink-0 text-right text-sm tabular-nums">
-                <span className="block">{piece.saleCents == null ? "No price" : money(piece.saleCents)}</span>
+                <span className="block">{piece.saleCents == null ? tx(lang, "stats.noPrice") : money(piece.saleCents)}</span>
                 <span className={`block text-xs ${profit != null && profit < 0 ? "text-danger" : "text-muted"}`}>{profit == null ? "—" : `${profit >= 0 ? "+" : "−"}${money(Math.abs(profit))}`}</span>
               </span>
             </button>
@@ -2206,6 +2241,7 @@ const PieceCard = memo(function PieceCard({
   onStatus,
   onDelete,
   onProblem,
+  lang = "en",
 }: {
   piece: Piece;
   layout: Layout;
@@ -2214,6 +2250,7 @@ const PieceCard = memo(function PieceCard({
   onStatus: (piece: Piece, status: Status) => void;
   onDelete: (piece: Piece) => void;
   onProblem: (piece: Piece, problem: string) => void;
+  lang?: Lang;
 }) {
   const [flags, setFlags] = useState(false);
   const held = daysHeld(piece.receivedOn, piece.soldOn);
@@ -2221,10 +2258,10 @@ const PieceCard = memo(function PieceCard({
   const Portrait = typeIcon(piece);
   const profit = unitProfitCents(piece);
   const actions: { key: string; label: string; icon: typeof Check; onClick: () => void; tone?: "accent" | "danger" }[] = [
-    { key: "sold", label: "Sold", icon: BadgeCheck, onClick: () => onStatus(piece, "sold"), tone: piece.status === "sold" ? "accent" : undefined },
-    { key: "incoming", label: "Coming", icon: Truck, onClick: () => onStatus(piece, "incoming"), tone: piece.status === "incoming" ? "accent" : undefined },
-    { key: "problem", label: "Problem", icon: CircleAlert, onClick: () => setFlags((open) => !open), tone: piece.problem ? "danger" : undefined },
-    { key: "delete", label: "Delete", icon: Trash2, onClick: () => onDelete(piece), tone: "danger" },
+    { key: "sold", label: tx(lang, "status.sold"), icon: BadgeCheck, onClick: () => onStatus(piece, "sold"), tone: piece.status === "sold" ? "accent" : undefined },
+    { key: "incoming", label: tx(lang, "ask.wordComing"), icon: Truck, onClick: () => onStatus(piece, "incoming"), tone: piece.status === "incoming" ? "accent" : undefined },
+    { key: "problem", label: tx(lang, "card.problem"), icon: CircleAlert, onClick: () => setFlags((open) => !open), tone: piece.problem ? "danger" : undefined },
+    { key: "delete", label: tx(lang, "common.delete"), icon: Trash2, onClick: () => onDelete(piece), tone: "danger" },
   ];
   const sizeLine = [piece.sizeLabel ? `${piece.sizeSystem} ${piece.sizeLabel}` : "", piece.usSize ? `US ${halfSize(piece.usSize)}` : ""].filter(Boolean).join(" · ");
   const frame = !iconic && piece.photo ? (
@@ -2240,7 +2277,7 @@ const PieceCard = memo(function PieceCard({
           <span className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-2xl bg-canvas text-muted">{frame}</span>
           <span className="min-w-0 flex-1">
             <span className="block truncate font-display text-lg leading-tight">{piece.name}</span>
-            <span className="mt-0.5 block truncate text-xs text-muted">{sizeLine || piece.category || "Piece"}</span>
+            <span className="mt-0.5 block truncate text-xs text-muted">{sizeLine || piece.category || tx(lang, "card.pieceCap")}</span>
             <span className="mt-2 flex items-baseline justify-between gap-2 text-xs tabular-nums">
               <span>{money(piece.costCents)}</span>
               <span className="font-medium">{money(piece.askCents)}</span>
@@ -2259,11 +2296,11 @@ const PieceCard = memo(function PieceCard({
           <span className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-canvas text-muted">{frame}</span>
           <span className="min-w-0 flex-1">
             <span className="block truncate font-medium">{piece.name}</span>
-            <span className="block truncate text-xs text-muted">{sizeLine || piece.category || "Piece"}</span>
+            <span className="block truncate text-xs text-muted">{sizeLine || piece.category || tx(lang, "card.pieceCap")}</span>
           </span>
           <span className="shrink-0 text-right">
             <span className="block font-display text-base tabular-nums">{money(piece.askCents)}</span>
-            <span className="block text-[11px] text-muted">{held == null ? STATUS_LABEL[piece.status] : `${held}d`}</span>
+            <span className="block text-[11px] text-muted">{held == null ? tx(lang, `status.${piece.status}` as StrKey) : `${held}d`}</span>
           </span>
         </button>
       </li>
@@ -2278,7 +2315,7 @@ const PieceCard = memo(function PieceCard({
           <span className="grid aspect-square place-items-center overflow-hidden bg-canvas text-muted">{frame}</span>
           <span className={`block min-w-0 ${dense ? "p-1.5" : "p-2.5"}`}>
             <span className={`block truncate font-medium ${layout === "g4" ? "text-[11px] leading-tight" : "text-sm"}`}>{piece.name}</span>
-            {layout === "g2" ? <span className="block truncate text-[11px] text-muted">{sizeLine || piece.category || "Piece"}</span> : null}
+            {layout === "g2" ? <span className="block truncate text-[11px] text-muted">{sizeLine || piece.category || tx(lang, "card.pieceCap")}</span> : null}
             <span className={`mt-0.5 block truncate font-display tabular-nums ${layout === "g4" ? "text-[11px]" : "text-sm"}`}>{money(piece.askCents)}</span>
           </span>
         </button>
@@ -2297,7 +2334,7 @@ const PieceCard = memo(function PieceCard({
             <button type="button" className="min-w-0 text-left" onClick={() => onOpen(piece)}>
               <p className="truncate font-display text-xl leading-tight">{piece.name}</p>
               <p className="mt-0.5 flex items-center gap-1.5 text-sm text-muted">
-                <span>{piece.category || "Piece"}</span>
+                <span>{piece.category || tx(lang, "card.pieceCap")}</span>
                 {piece.place === "home" ? <HomeIcon className="size-3.5" strokeWidth={1.75} /> : null}
                 {piece.place === "car" ? <Car className="size-3.5" strokeWidth={1.75} /> : null}
               </p>
@@ -2305,7 +2342,7 @@ const PieceCard = memo(function PieceCard({
             {piece.status === "available" ? (
               <span className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-accent px-3 text-sm font-medium text-accent-ink">
                 <Check className="size-3.5" strokeWidth={2.25} />
-                Available
+                {tx(lang, "status.available")}
               </span>
             ) : (
               <button
@@ -2314,37 +2351,37 @@ const PieceCard = memo(function PieceCard({
                 className="press inline-flex h-8 shrink-0 items-center gap-1 rounded-full border border-accent bg-accent px-3 text-sm font-medium text-accent-ink"
               >
                 <Check className="size-3.5" strokeWidth={2.25} />
-                Available
+                {tx(lang, "status.available")}
               </button>
             )}
           </div>
           <p className="mt-2 text-sm tabular-nums">
-            {[piece.sizeLabel ? `${piece.sizeSystem} ${piece.sizeLabel}` : "", piece.usSize ? `US ${halfSize(piece.usSize)}` : ""].filter(Boolean).join(" · ") || "No size"}
+            {[piece.sizeLabel ? `${piece.sizeSystem} ${piece.sizeLabel}` : "", piece.usSize ? `US ${halfSize(piece.usSize)}` : ""].filter(Boolean).join(" · ") || tx(lang, "stats.noSize")}
           </p>
         </div>
       </div>
       <div className="grid grid-cols-3 gap-2 px-3.5">
         <figure className="rounded-2xl bg-canvas px-3 py-2.5">
-          <figcaption className="text-[10px] tracking-wide text-faint uppercase">Cost</figcaption>
+          <figcaption className="text-[10px] tracking-wide text-faint uppercase">{tx(lang, "card.cost")}</figcaption>
           <p className="mt-0.5 font-display text-lg tabular-nums">{money(piece.costCents)}</p>
         </figure>
         <figure className="rounded-2xl bg-canvas px-3 py-2.5">
-          <figcaption className="text-[10px] tracking-wide text-faint uppercase">Asking</figcaption>
+          <figcaption className="text-[10px] tracking-wide text-faint uppercase">{tx(lang, "card.asking")}</figcaption>
           <p className="mt-0.5 font-display text-lg tabular-nums">{money(piece.askCents)}</p>
         </figure>
         <figure className="rounded-2xl bg-canvas px-3 py-2.5">
           <figcaption className="flex items-center gap-1 text-[10px] tracking-wide text-faint uppercase">
             <Clock className="size-3" strokeWidth={1.75} />
-            Days
+            {tx(lang, "card.days")}
           </figcaption>
           <p className="mt-0.5 font-display text-lg tabular-nums">{held == null ? "—" : held}</p>
         </figure>
       </div>
       {profit != null || piece.notes || problem || (isSale(piece) && piece.saleCents == null) ? (
         <p className="mt-2 px-3.5 text-sm text-muted">
-          {piece.saleCents != null ? `Sold ${money(piece.saleCents)} · ${profit != null && profit >= 0 ? "+" : "−"}${money(Math.abs(profit ?? 0))}` : ""}
-          {isSale(piece) && piece.saleCents == null ? "No sale price" : ""}
-          {problem ? <span className="text-danger">{piece.saleCents != null || (isSale(piece) && piece.saleCents == null) ? " · " : ""}{problem.label}</span> : null}
+          {piece.saleCents != null ? `${tx(lang, "card.soldPart", { amount: money(piece.saleCents) })} · ${profit != null && profit >= 0 ? "+" : "−"}${money(Math.abs(profit ?? 0))}` : ""}
+          {isSale(piece) && piece.saleCents == null ? tx(lang, "card.noSalePrice") : ""}
+          {problem ? <span className="text-danger">{piece.saleCents != null || (isSale(piece) && piece.saleCents == null) ? " · " : ""}{tx(lang, `problem.${problem.id}` as StrKey)}</span> : null}
           {piece.notes ? ` · ${piece.notes}` : ""}
         </p>
       ) : null}
@@ -2373,7 +2410,7 @@ const PieceCard = memo(function PieceCard({
               className={`press h-9 rounded-full border px-3 text-sm ${piece.problem === item.id ? "border-danger text-danger" : "border-line"}`}
               onClick={() => onProblem(piece, piece.problem === item.id ? "" : item.id)}
             >
-              {item.label}
+              {tx(lang, `problem.${item.id}` as StrKey)}
             </button>
           ))}
         </div>
@@ -2393,7 +2430,7 @@ function soldInWindow(ad: Ad, pieces: Piece[]) {
   return pieces.some((piece) => piece.name.trim().toLowerCase() === ad.product.trim().toLowerCase() && !!piece.soldOn && piece.soldOn >= (ad.startedOn ?? "") && piece.soldOn <= end && (piece.status === "sold" || piece.wasSold));
 }
 
-function AdBoard({ ads, pieces, bare }: { ads: Ad[]; pieces: Piece[]; bare?: boolean }) {
+function AdBoard({ ads, pieces, bare, lang = "en" }: { ads: Ad[]; pieces: Piece[]; bare?: boolean; lang?: Lang }) {
   const spent = ads.reduce((sum, ad) => sum + ad.spentCents, 0);
   const worked = ads.filter((ad) => ad.worked === "yes").length;
   const missed = ads.filter((ad) => ad.worked === "no").length;
@@ -2401,11 +2438,11 @@ function AdBoard({ ads, pieces, bare }: { ads: Ad[]; pieces: Piece[]; bare?: boo
   const average = days.length ? Math.round(days.reduce((sum, value) => sum + value, 0) / days.length) : null;
   return (
     <div className={bare ? "" : "rounded-3xl border border-line bg-panel p-4"}>
-      {bare ? null : <p className="text-xs font-medium tracking-wide text-faint uppercase">Ads</p>}
-      {ads.length === 0 ? <p className="text-sm text-muted">No promotion logged yet. Record it from History.</p> : (
+      {bare ? null : <p className="text-xs font-medium tracking-wide text-faint uppercase">{tx(lang, "ads.title")}</p>}
+      {ads.length === 0 ? <p className="text-sm text-muted">{tx(lang, "ads.noneBoard")}</p> : (
         <>
           <p className={`${bare ? "" : "mt-2 "}font-display text-3xl tabular-nums`}>{money(spent)}</p>
-          <p className="mt-1 text-sm text-muted">{worked} worked · {missed} did not · {average == null ? "no dates" : `${average}d average`}</p>
+          <p className="mt-1 text-sm text-muted">{tx(lang, "ads.summary", { worked, missed, tail: average == null ? tx(lang, "ads.noDates") : tx(lang, "ads.tailAvg", { d: average }) })}</p>
           <ul className="mt-3 space-y-2.5">
             {ads.map((ad, index) => {
               const span = adSpan(ad);
@@ -2413,7 +2450,7 @@ function AdBoard({ ads, pieces, bare }: { ads: Ad[]; pieces: Piece[]; bare?: boo
                 <li key={ad.id} className="row-in flex items-baseline justify-between gap-3 text-sm" style={{ animationDelay: `${Math.min(index * 45, 270)}ms` }}>
                   <span className="min-w-0">
                     <span className="block">{ad.product}</span>
-                    <span className="block text-xs text-muted">{span == null ? "No dates" : `${span}d`} · {ad.worked === "yes" ? "Worked" : ad.worked === "no" ? "Did not" : "Running"} · {soldInWindow(ad, pieces) ? "Sale landed" : "No sale"}</span>
+                    <span className="block text-xs text-muted">{span == null ? tx(lang, "ads.noDatesCap") : `${span}d`} · {ad.worked === "yes" ? tx(lang, "ads.worked") : ad.worked === "no" ? tx(lang, "ads.didNot") : tx(lang, "ads.running")} · {soldInWindow(ad, pieces) ? tx(lang, "ads.saleLanded") : tx(lang, "ads.noSale")}</span>
                   </span>
                   <span className="shrink-0 tabular-nums">{money(ad.spentCents)}</span>
                 </li>
@@ -2426,7 +2463,7 @@ function AdBoard({ ads, pieces, bare }: { ads: Ad[]; pieces: Piece[]; bare?: boo
   );
 }
 
-function AdsWidget({ ads, pieces, onChange }: { ads: Ad[]; pieces: Piece[]; onChange: (ads: Ad[]) => void }) {
+function AdsWidget({ ads, pieces, onChange, lang = "en" }: { ads: Ad[]; pieces: Piece[]; onChange: (ads: Ad[]) => void; lang?: Lang }) {
   const tone = litTone("#7d5a86");
   const [open, setOpen] = useState(false);
   const [pick, setPick] = useState("new");
@@ -2442,7 +2479,7 @@ function AdsWidget({ ads, pieces, onChange }: { ads: Ad[]; pieces: Piece[]; onCh
   const draft: Ad = { id: pick, product, spentCents: dollarsToCents(amount), startedOn: startedOn || null, endedOn: endedOn || null, worked };
   const days = adSpan(draft);
   const landed = soldInWindow(draft, pieces);
-  const hint = ads.length === 0 ? "Nothing promoted yet" : running.length === 1 ? `${running[0].product} · still running` : `${running.length} running · ${ads.length} logged`;
+  const hint = ads.length === 0 ? tx(lang, "ads.hintNone") : running.length === 1 ? tx(lang, "ads.hintRunning", { product: running[0].product }) : tx(lang, "ads.hintMany", { running: running.length, total: ads.length });
   const field = "h-10 w-full rounded-xl border border-line bg-canvas px-3 text-sm outline-none focus:border-accent";
 
   function load(ad: Ad | null) {
@@ -2482,7 +2519,7 @@ function AdsWidget({ ads, pieces, onChange }: { ads: Ad[]; pieces: Piece[]; onCh
             className="block text-[11px] font-semibold tracking-[0.14em] uppercase"
             style={{ color: `color-mix(in srgb, ${tone} 72%, var(--v-ink))` }}
           >
-            Ads
+            {tx(lang, "ads.title")}
           </span>
           <span className="block truncate font-display text-2xl leading-none tabular-nums">{money(spent)}</span>
           <span className="mt-1 block truncate text-[11px] text-muted">{hint}</span>
@@ -2493,7 +2530,7 @@ function AdsWidget({ ads, pieces, onChange }: { ads: Ad[]; pieces: Piece[]; onCh
         <div className="mt-2 rounded-2xl border border-line bg-panel p-3">
           {ads.length ? (
             <div className="mb-3 flex gap-1.5 overflow-x-auto">
-              <RippleButton ink={tone} onClick={() => load(null)} className={`press h-8 shrink-0 rounded-full border px-3 text-xs ${pick === "new" ? "text-[#f6f3ec]" : "border-line text-muted"}`} style={pick === "new" ? { background: tone, borderColor: tone } : undefined}>New</RippleButton>
+              <RippleButton ink={tone} onClick={() => load(null)} className={`press h-8 shrink-0 rounded-full border px-3 text-xs ${pick === "new" ? "text-[#f6f3ec]" : "border-line text-muted"}`} style={pick === "new" ? { background: tone, borderColor: tone } : undefined}>{tx(lang, "ads.new")}</RippleButton>
               {ads.map((ad) => (
                 <RippleButton key={ad.id} ink={tone} onClick={() => load(ad)} className={`press h-8 max-w-40 shrink-0 truncate rounded-full border px-3 text-xs ${pick === ad.id ? "text-[#f6f3ec]" : "border-line"}`} style={pick === ad.id ? { background: tone, borderColor: tone } : undefined}>
                   {ad.product}
@@ -2501,10 +2538,10 @@ function AdsWidget({ ads, pieces, onChange }: { ads: Ad[]; pieces: Piece[]; onCh
               ))}
             </div>
           ) : null}
-          {choices.length === 0 ? <p className="text-sm text-muted">Nothing available to promote yet.</p> : (
+          {choices.length === 0 ? <p className="text-sm text-muted">{tx(lang, "ads.nothingAvailable")}</p> : (
             <>
               <div className="space-y-1.5">
-                <p className="px-1 text-[11px] tracking-[0.14em] text-faint uppercase">Available</p>
+                <p className="px-1 text-[11px] tracking-[0.14em] text-faint uppercase">{tx(lang, "status.available")}</p>
                 {choices.map((name) => {
                   const on = product === name;
                   return (
@@ -2522,23 +2559,23 @@ function AdsWidget({ ads, pieces, onChange }: { ads: Ad[]; pieces: Piece[]; onCh
                   );
                 })}
               </div>
-              <input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="Paid" className={`${field} mt-2`} />
+              <input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder={tx(lang, "ads.paid")} className={`${field} mt-2`} />
               <div className="mt-2 grid grid-cols-2 gap-2">
-                <input type="date" value={startedOn} onChange={(event) => setStartedOn(event.target.value)} aria-label="Started" className={field} />
-                <input type="date" value={endedOn} onChange={(event) => setEndedOn(event.target.value)} aria-label="Ended" className={field} />
+                <input type="date" value={startedOn} onChange={(event) => setStartedOn(event.target.value)} aria-label={tx(lang, "ads.started")} className={field} />
+                <input type="date" value={endedOn} onChange={(event) => setEndedOn(event.target.value)} aria-label={tx(lang, "ads.ended")} className={field} />
               </div>
               <div className="mt-2 grid grid-cols-3 gap-1.5">
                 {([
-                  ["running", "Running"],
-                  ["yes", "Worked"],
-                  ["no", "Did not"],
+                  ["running", tx(lang, "ads.running")],
+                  ["yes", tx(lang, "ads.worked")],
+                  ["no", tx(lang, "ads.didNot")],
                 ] as const).map(([id, label]) => (
                   <button key={id} type="button" aria-pressed={worked === id} onClick={() => setWorked(id)} className={`press h-9 rounded-full border text-xs ${worked === id ? "text-[#f6f3ec]" : "border-line text-muted"}`} style={worked === id ? { background: tone, borderColor: tone } : undefined}>
                     {label}
                   </button>
                 ))}
               </div>
-              <p className="mt-2 text-xs text-muted">{days == null ? "Add a start date." : `${days} ${days === 1 ? "day" : "days"}`} · {product ? (landed ? "A sale landed while it ran." : "No sale in those days.") : "Choose a product."}</p>
+              <p className="mt-2 text-xs text-muted">{days == null ? tx(lang, "ads.addStart") : `${days} ${days === 1 ? tx(lang, "common.day") : tx(lang, "common.days")}`} · {product ? (landed ? tx(lang, "ads.landedLine") : tx(lang, "ads.noSaleLine")) : tx(lang, "ads.chooseProduct")}</p>
               <div className="mt-3 flex gap-2">
                 <button
                   type="button"
@@ -2554,11 +2591,11 @@ function AdsWidget({ ads, pieces, onChange }: { ads: Ad[]; pieces: Piece[]; onCh
                     });
                   }}
                 >
-                  {pick === "new" ? "Add" : "Save"}
+                  {pick === "new" ? tx(lang, "common.add") : tx(lang, "common.save")}
                 </button>
                 {pick !== "new" ? (
                   <button type="button" className="press h-9 rounded-full border border-line px-4 text-sm text-muted" onClick={() => void deleteAd({ data: pick }).then((next) => { onChange(next); load(null); })}>
-                    Remove
+                    {tx(lang, "common.remove")}
                   </button>
                 ) : null}
               </div>
@@ -2580,7 +2617,7 @@ function Overlay({ children, onClose }: { children: ReactNode; onClose: () => vo
   );
 }
 
-function Editor({ initial, known = [], focus = null, onClose, onSave, onImport, onTray }: { initial: PieceInput; known?: Piece[]; focus?: AdviceFocus | null; onClose: () => void; onSave: (input: PieceInput) => void; onImport?: (rows: PieceInput[]) => Promise<number>; onTray?: (payload: TrayPayload) => Promise<{ added: number; updated: number }> }) {
+function Editor({ initial, known = [], focus = null, onClose, onSave, onImport, onTray, lang = "en" }: { initial: PieceInput; known?: Piece[]; focus?: AdviceFocus | null; onClose: () => void; onSave: (input: PieceInput) => void; onImport?: (rows: PieceInput[]) => Promise<number>; onTray?: (payload: TrayPayload) => Promise<{ added: number; updated: number }>; lang?: Lang }) {
   const [draft, setDraft] = useState(initial);
   const [batch, setBatch] = useState(false);
   const [convertNote, setConvertNote] = useState("");
@@ -2608,12 +2645,12 @@ function Editor({ initial, known = [], focus = null, onClose, onSave, onImport, 
     <Overlay onClose={tryClose}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <p className="font-display text-3xl">{batch ? "Add a batch" : draft.id ? "Edit piece" : "Add a piece"}</p>
+          <p className="font-display text-3xl">{batch ? tx(lang, "editor.addBatch") : draft.id ? tx(lang, "editor.editPiece") : tx(lang, "editor.addPiece")}</p>
         </div>
         {onImport || onTray ? (
           <button
             type="button"
-            aria-label={batch ? "Add one piece" : "Add a batch"}
+            aria-label={batch ? tx(lang, "editor.addOne") : tx(lang, "editor.addBatch")}
             aria-pressed={batch}
             onClick={() => setBatch((open) => !open)}
             className={`press grid size-11 shrink-0 place-items-center rounded-full border ${batch ? "border-accent bg-accent text-accent-ink" : "border-line"}`}
@@ -2623,7 +2660,7 @@ function Editor({ initial, known = [], focus = null, onClose, onSave, onImport, 
         ) : null}
       </div>
       {batch && onTray ? (
-        <TrayImport pieces={known} onApply={onTray} onImportCsv={onImport} onClose={onClose} onDirtyChange={setTrayDirty} />
+        <TrayImport lang={lang} pieces={known} onApply={onTray} onImportCsv={onImport} onClose={onClose} onDirtyChange={setTrayDirty} />
       ) : (
       <form
         className="mt-4 grid gap-3"
@@ -2632,15 +2669,15 @@ function Editor({ initial, known = [], focus = null, onClose, onSave, onImport, 
           onSave(draft);
         }}
       >
-        <Field label="Name">
+        <Field label={tx(lang, "editor.name")}>
           <input required value={draft.name} onChange={(event) => set({ name: event.target.value })} className={control} />
         </Field>
         <div id="editor-photo">
-          <Field label="Photo">
+          <Field label={tx(lang, "editor.photo")}>
             <div className="flex items-center gap-3">
               {draft.photo ? <img src={draft.photo} alt="" className="size-16 rounded-xl object-cover" /> : <span className="grid size-16 place-items-center rounded-xl border border-dashed border-line"><ImagePlus className="size-5" strokeWidth={1.75} /></span>}
               <label className="press inline-flex h-11 cursor-pointer items-center rounded-full border border-line px-4 text-sm">
-                {draft.photo ? "Change photo" : "Add photo"}
+                {draft.photo ? tx(lang, "editor.changePhoto") : tx(lang, "editor.addPhoto")}
                 <input
                   type="file"
                   accept="image/*"
@@ -2657,42 +2694,42 @@ function Editor({ initial, known = [], focus = null, onClose, onSave, onImport, 
           </Field>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Category">
+          <Field label={tx(lang, "editor.category")}>
             <input value={draft.category} onChange={(event) => set({ category: event.target.value })} list="ventory-categories" className={control} />
             <datalist id="ventory-categories">
               {[...new Set(known.map((piece) => piece.category.trim()).filter(Boolean))].map((item) => <option key={item} value={item} />)}
             </datalist>
           </Field>
-          <Field label="Subcategory">
+          <Field label={tx(lang, "editor.subcategory")}>
             <input value={draft.subcategory} onChange={(event) => set({ subcategory: event.target.value })} list="ventory-subs" placeholder="Chelsea, Combat" className={control} />
             <datalist id="ventory-subs">
               {[...new Set(known.filter((piece) => !draft.category || piece.category.trim().toLowerCase() === draft.category.trim().toLowerCase()).map((piece) => piece.subcategory.trim()).filter(Boolean))].map((item) => <option key={item} value={item} />)}
             </datalist>
           </Field>
         </div>
-        <Field id="editor-brand" label="Brand">
+        <Field id="editor-brand" label={tx(lang, "editor.brand")}>
           <input value={draft.brand} onChange={(event) => set({ brand: event.target.value })} className={control} />
         </Field>
-        <Field label="Status">
+        <Field label={tx(lang, "editor.status")}>
           <select value={draft.status} onChange={(event) => set({ status: event.target.value as Status })} className={control}>
             {STATUSES.map((status) => (
-              <option key={status} value={status}>{STATUS_LABEL[status]}</option>
+              <option key={status} value={status}>{tx(lang, `status.${status}` as StrKey)}</option>
             ))}
-            {draft.status === "kept" ? <option value="kept">Kept</option> : null}
+            {draft.status === "kept" ? <option value="kept">{tx(lang, "status.kept")}</option> : null}
           </select>
         </Field>
         <div className="grid grid-cols-3 gap-3">
-          <Field label="System">
+          <Field label={tx(lang, "editor.system")}>
             <input value={draft.sizeSystem} onChange={(event) => set({ sizeSystem: event.target.value })} className={control} />
           </Field>
-          <Field id="editor-size" label="Size">
+          <Field id="editor-size" label={tx(lang, "editor.size")}>
             <input value={draft.sizeLabel} onChange={(event) => set({ sizeLabel: event.target.value })} className={control} />
           </Field>
-          <Field label="Fit">
+          <Field label={tx(lang, "editor.fit")}>
             <select value={draft.fit} onChange={(event) => set({ fit: event.target.value })} className={control}>
-              <option value="women">Women</option>
-              <option value="men">Men</option>
-              <option value="unisex">Unisex</option>
+              <option value="women">{tx(lang, "editor.women")}</option>
+              <option value="men">{tx(lang, "editor.men")}</option>
+              <option value="unisex">{tx(lang, "editor.unisex")}</option>
             </select>
           </Field>
         </div>
@@ -2707,39 +2744,39 @@ function Editor({ initial, known = [], focus = null, onClose, onSave, onImport, 
                 setConvertNote("");
               } else {
                 // Say why, instead of silence (button audit V-2).
-                setConvertNote(draft.sizeLabel.trim() ? `No US size for ${draft.sizeSystem} ${draft.sizeLabel} yet.` : "Add a size first, then convert.");
+                setConvertNote(draft.sizeLabel.trim() ? tx(lang, "editor.noUsSize", { system: draft.sizeSystem, label: draft.sizeLabel }) : tx(lang, "editor.addSizeFirst"));
               }
             }}
           >
-            Convert to US {draft.usSize ? `· ${draft.usSize}` : ""}
+            {tx(lang, "editor.convert")} {draft.usSize ? `· ${draft.usSize}` : ""}
           </button>
           {convertNote ? <p className="mt-1.5 text-xs text-muted">{convertNote}</p> : null}
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field id="editor-cost" label="Cost">
+          <Field id="editor-cost" label={tx(lang, "card.cost")}>
             <input inputMode="decimal" defaultValue={(draft.costCents / 100).toFixed(2)} onChange={(event) => set({ costCents: dollarsToCents(event.target.value) })} className={control} />
           </Field>
-          <Field id="editor-ask" label="Asking">
+          <Field id="editor-ask" label={tx(lang, "card.asking")}>
             <input inputMode="decimal" defaultValue={(draft.askCents / 100).toFixed(2)} onChange={(event) => set({ askCents: dollarsToCents(event.target.value) })} className={control} />
           </Field>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Rebate back (buying)">
+          <Field label={tx(lang, "editor.rebate")}>
             <input inputMode="decimal" defaultValue={(draft.buyRebateCents / 100).toFixed(2)} onChange={(event) => set({ buyRebateCents: dollarsToCents(event.target.value) })} className={control} />
           </Field>
-          <Field label="Delivery charged">
+          <Field label={tx(lang, "editor.delivery")}>
             <input inputMode="decimal" defaultValue={(draft.deliveryCents / 100).toFixed(2)} onChange={(event) => set({ deliveryCents: dollarsToCents(event.target.value) })} className={control} />
           </Field>
         </div>
-        <Field id="editor-source" label="Bought from">
+        <Field id="editor-source" label={tx(lang, "editor.boughtFrom")}>
           <input value={draft.source} onChange={(event) => set({ source: event.target.value })} placeholder="Shein, Temu, Amazon" className={control} />
         </Field>
         <div id="editor-place">
-        <Field label="Where">
+        <Field label={tx(lang, "editor.where")}>
           <div className="flex gap-2">
             {([
-              ["home", "Home", HomeIcon],
-              ["car", "Car", Car],
+              ["home", tx(lang, "editor.home"), HomeIcon],
+              ["car", tx(lang, "editor.car"), Car],
             ] as const).map(([id, label, Icon]) => (
               <button
                 key={id}
@@ -2755,7 +2792,7 @@ function Editor({ initial, known = [], focus = null, onClose, onSave, onImport, 
           </div>
         </Field>
         </div>
-        <Field label="Problem">
+        <Field label={tx(lang, "card.problem")}>
           <div className="flex flex-wrap gap-2">
             {PROBLEMS.map((item) => (
               <button
@@ -2765,22 +2802,22 @@ function Editor({ initial, known = [], focus = null, onClose, onSave, onImport, 
                 onClick={() => set({ problem: draft.problem === item.id ? "" : item.id })}
                 className={`press h-9 rounded-full border px-3 text-sm ${draft.problem === item.id ? "border-danger text-danger" : "border-line"}`}
               >
-                {item.label}
+                {tx(lang, `problem.${item.id}` as StrKey)}
               </button>
             ))}
           </div>
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field id="editor-date" label="Arrived">
+          <Field id="editor-date" label={tx(lang, "editor.arrived")}>
             <input type="date" value={draft.receivedOn ?? ""} onChange={(event) => set({ receivedOn: event.target.value || null })} className={control} />
           </Field>
-          <Field label="Left">
+          <Field label={tx(lang, "editor.left")}>
             <input type="date" value={draft.soldOn ?? ""} onChange={(event) => set({ soldOn: event.target.value || null })} className={control} />
           </Field>
         </div>
         <div className="flex gap-2">
-          <button type="submit" className="press h-11 rounded-full bg-accent px-5 text-sm font-medium text-accent-ink">Save</button>
-          <button type="button" className="press h-11 rounded-full border border-line px-5 text-sm" onClick={tryClose}>Cancel</button>
+          <button type="submit" className="press h-11 rounded-full bg-accent px-5 text-sm font-medium text-accent-ink">{tx(lang, "common.save")}</button>
+          <button type="button" className="press h-11 rounded-full border border-line px-5 text-sm" onClick={tryClose}>{tx(lang, "common.cancel")}</button>
         </div>
       </form>
       )}
@@ -2788,11 +2825,11 @@ function Editor({ initial, known = [], focus = null, onClose, onSave, onImport, 
     {discardAsk ? (
       <div className="veil-in fixed inset-0 z-40 grid place-items-center bg-black/50 p-3" onClick={() => setDiscardAsk(false)}>
         <div className="sheet-in w-full max-w-sm rounded-3xl border border-line bg-canvas p-5" onClick={(event) => event.stopPropagation()}>
-          <p className="font-display text-2xl">Discard changes?</p>
-          <p className="mt-2 text-sm text-muted">This piece has edits that are not saved yet.</p>
+          <p className="font-display text-2xl">{tx(lang, "editor.discardTitle")}</p>
+          <p className="mt-2 text-sm text-muted">{tx(lang, "editor.discardBody")}</p>
           <div className="mt-5 flex gap-2">
-            <button type="button" className="press h-11 rounded-full border border-danger px-4 text-sm font-medium text-danger" onClick={onClose}>Discard</button>
-            <button type="button" className="press h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-ink" onClick={() => setDiscardAsk(false)}>Keep editing</button>
+            <button type="button" className="press h-11 rounded-full border border-danger px-4 text-sm font-medium text-danger" onClick={onClose}>{tx(lang, "editor.discard")}</button>
+            <button type="button" className="press h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-ink" onClick={() => setDiscardAsk(false)}>{tx(lang, "editor.keepEditing")}</button>
           </div>
         </div>
       </div>
@@ -2842,11 +2879,11 @@ function compressPhoto(file: File) {
    frame; names are never cut. Motion: the house's from-only keyframes,
    nothing under reduced motion.
    ====================================================================== */
-type FoldState = { openStats: string[]; pinnedStats: string[]; foldStat: (id: string) => void; pinStat: (id: string) => void };
+type FoldState = { openStats: string[]; pinnedStats: string[]; foldStat: (id: string) => void; pinStat: (id: string) => void; lang: Lang };
 
 function DeskFold({ s, id, title, line, children }: { s: FoldState; id: string; title: string; line?: string; children: ReactNode }) {
   return (
-    <StatFold shot={`stat-${id}`} title={title} line={line ? commas(line) : line} open={s.openStats.includes(id) || s.pinnedStats.includes(id)} pinned={s.pinnedStats.includes(id)} onToggle={() => s.foldStat(id)} onPin={() => s.pinStat(id)}>
+    <StatFold lang={s.lang} shot={`stat-${id}`} title={title} line={line ? commas(line) : line} open={s.openStats.includes(id) || s.pinnedStats.includes(id)} pinned={s.pinnedStats.includes(id)} onToggle={() => s.foldStat(id)} onPin={() => s.pinStat(id)}>
       {children}
     </StatFold>
   );
@@ -2861,6 +2898,7 @@ function StatsDesk({
   pinnedStats,
   foldStat,
   pinStat,
+  lang = "en",
 }: {
   pieces: Piece[];
   ads: Ad[];
@@ -2870,22 +2908,23 @@ function StatsDesk({
   pinnedStats: string[];
   foldStat: (id: string) => void;
   pinStat: (id: string) => void;
+  lang?: Lang;
 }) {
-  const m = useMemo(() => measure(pieces, adsOn ? ads : []), [pieces, ads, adsOn]);
-  const months = useMemo(() => series(m.sales, "month", { limit: 12 }), [m.sales]);
-  const week = useMemo(() => compare(m.sales, "week"), [m.sales]);
-  const month = useMemo(() => compare(m.sales, "month"), [m.sales]);
+  const m = useMemo(() => measure(pieces, adsOn ? ads : [], { lang }), [pieces, ads, adsOn, lang]);
+  const months = useMemo(() => series(m.sales, "month", { limit: 12, lang }), [m.sales, lang]);
+  const week = useMemo(() => compare(m.sales, "week", undefined, lang), [m.sales, lang]);
+  const month = useMemo(() => compare(m.sales, "month", undefined, lang), [m.sales, lang]);
   const [lens, setLens] = useState<"category" | "product" | "brand">("product");
   const stockUnits = m.units.onHand + m.units.incoming;
-  const st = { openStats, pinnedStats, foldStat, pinStat };
+  const st = { openStats, pinnedStats, foldStat, pinStat, lang };
   const earnRows = (lens === "category" ? m.byCategory : lens === "brand" ? m.byBrand : m.byProduct)
     .filter((row) => row.soldUnits > 0)
-    .map((row) => ({ label: row.label, value: row.profit, text: cash(row.profit), negative: row.profit < 0, sub: `${row.soldUnits} sold${row.margin != null ? ` · ${pct(row.margin)}` : ""}` }));
-  const brandsKnown = m.byBrand.some((row) => row.label !== "No brand");
+    .map((row) => ({ label: row.label, value: row.profit, text: cash(row.profit), negative: row.profit < 0, sub: `${tx(lang, "stats.soldSub", { n: row.soldUnits })}${row.margin != null ? ` · ${pct(row.margin)}` : ""}` }));
+  const brandsKnown = m.byBrand.some((row) => row.label !== tx(lang, "stats.noBrand"));
   const quick = m.byProduct.filter((row) => row.soldUnits >= 2 && row.avgDays != null).sort((a, b) => (a.avgDays ?? 0) - (b.avgDays ?? 0));
-  const channels = m.byChannel.filter((row) => row.label !== "Not recorded");
-  const clients = m.byClient.filter((row) => row.label !== "Not recorded").sort((a, b) => b.revenue - a.revenue || b.soldUnits - a.soldUnits);
-  const sources = m.bySource.filter((row) => row.label !== "Not recorded");
+  const channels = m.byChannel.filter((row) => row.label !== tx(lang, "stats.notRecorded"));
+  const clients = m.byClient.filter((row) => row.label !== tx(lang, "stats.notRecorded")).sort((a, b) => b.revenue - a.revenue || b.soldUnits - a.soldUnits);
+  const sources = m.bySource.filter((row) => row.label !== tx(lang, "stats.notRecorded"));
   const hue = [TONES.amber, TONES.green, TONES.blue, TONES.copper, TONES.teal, TONES.plum];
   const best = m.byProduct.filter((row) => row.soldUnits > 0)[0];
   const oldest = m.aging.oldest[0];
@@ -2895,21 +2934,21 @@ function StatsDesk({
     .slice()
     .sort((a, b) => b.soldUnits - a.soldUnits || b.stockUnits - a.stockUnits || a.label.localeCompare(b.label))
     .map((row) => ({ label: row.label, a: row.soldUnits, b: row.stockUnits, extra: row.sellThrough != null ? pct(row.sellThrough) : undefined }));
-  const topSize = m.bySize.filter((row) => row.label !== "No size").sort((a, b) => b.soldUnits - a.soldUnits)[0];
+  const topSize = m.bySize.filter((row) => row.label !== tx(lang, "stats.noSize")).sort((a, b) => b.soldUnits - a.soldUnits)[0];
 
   return (
     <div className="piece mt-4 space-y-3">
       <section data-shot="stat-hero" className="advice-hero framed rounded-3xl bg-panel p-5">
-        <Kicker>Statistics · {m.units.sold} {m.units.sold === 1 ? "sale" : "sales"} counted</Kicker>
+        <Kicker>{tx(lang, "stats.heroKicker", { n: m.units.sold, word: tx(lang, m.units.sold === 1 ? "common.saleWordOne" : "common.saleWordOther") })}</Kicker>
         <div className="mt-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
           <div className="min-w-0">
-            <p className="text-sm text-muted">Left after cost</p>
+            <p className="text-sm text-muted">{tx(lang, "board.leftAfterCost")}</p>
             <p className={`mt-1 font-display text-5xl leading-none tracking-tight tabular-nums ${m.profit < 0 ? "text-danger" : ""}`}>
               <Count value={m.profit} format={(n) => cash(Math.round(n))} final={cash(m.profit)} />
             </p>
           </div>
           <p className="pb-1 text-sm text-muted">
-            <span className="tabular-nums text-ink">{cash(m.revenue)}</span> came in · <span className="tabular-nums text-ink">{pct(m.margin)}</span> margin
+            <span className="tabular-nums text-ink">{cash(m.revenue)}</span>{tx(lang, "stats.cameInVerb")}<span className="tabular-nums text-ink">{pct(m.margin)}</span>{tx(lang, "stats.marginTail")}
           </p>
         </div>
         {months.length > 1 ? (
@@ -2917,17 +2956,17 @@ function StatsDesk({
             <Spark values={months.map((row) => row.profit)} />
             <div className="mt-1 flex justify-between text-[11px] text-faint">
               <span>{months[0].label}</span>
-              <span>Left after cost, month by month</span>
+              <span>{tx(lang, "stats.sparkCaption")}</span>
               <span>{months[months.length - 1].label}</span>
             </div>
           </div>
         ) : null}
         <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-4 border-t border-line pt-4 sm:grid-cols-4">
           {[
-            { k: "Sell-through", v: pct(m.sellThrough), s: `${m.units.sold} of ${m.units.sold + stockUnits} pieces` },
-            { k: "Days to sell", v: m.days.median == null ? "—" : `${m.days.median} d`, s: m.days.n ? `median of ${m.days.n} dated` : "no dated sale yet" },
-            { k: "Stock at cost", v: cash(m.stockCost, true), s: `${stockUnits} ${stockUnits === 1 ? "piece" : "pieces"} waiting` },
-            { k: "Average sale", v: m.avgSale == null ? "—" : cash(m.avgSale), s: m.avgProfit == null ? "no priced sale" : `${cash(m.avgProfit)} left each` },
+            { k: tx(lang, "stats.sellThrough"), v: pct(m.sellThrough), s: tx(lang, "stats.ofPieces", { sold: m.units.sold, total: m.units.sold + stockUnits }) },
+            { k: tx(lang, "stats.daysToSell"), v: m.days.median == null ? "—" : `${m.days.median} d`, s: m.days.n ? tx(lang, "stats.medianOf", { n: m.days.n }) : tx(lang, "stats.noDatedSale") },
+            { k: tx(lang, "stats.stockAtCost"), v: cash(m.stockCost, true), s: tx(lang, "stats.waiting", { n: stockUnits, word: tx(lang, stockUnits === 1 ? "common.piece" : "common.pieces") }) },
+            { k: tx(lang, "stats.avgSale"), v: m.avgSale == null ? "—" : cash(m.avgSale), s: m.avgProfit == null ? tx(lang, "stats.noPricedSale") : tx(lang, "stats.leftEach", { x: cash(m.avgProfit) }) },
           ].map((item, index) => (
             <div key={item.k} className="row-in min-w-0" style={{ animationDelay: `${120 + index * 60}ms` }}>
               <dt className="text-[11px] font-medium tracking-[0.12em] whitespace-nowrap text-faint uppercase">{item.k}</dt>
@@ -2938,90 +2977,90 @@ function StatsDesk({
         </dl>
       </section>
 
-      <DeskFold s={st} id="time" title="Over time" line={lines.time}>
-        <Trend sales={m.sales} />
+      <DeskFold s={st} id="time" title={tx(lang, "stats.foldTime")} line={lines.time}>
+        <Trend lang={lang} sales={m.sales} />
       </DeskFold>
 
-      <DeskFold s={st} id="earns" title="What earns" line={best ? `${best.label} leads with ${cash(best.profit)} left after cost from ${best.soldUnits} ${best.soldUnits === 1 ? "sale" : "sales"}.` : "Nothing has sold yet, so nothing can be ranked."}>
+      <DeskFold s={st} id="earns" title={tx(lang, "stats.foldEarns")} line={best ? tx(lang, "stats.earnsLine", { label: best.label, amount: cash(best.profit), n: best.soldUnits, word: tx(lang, best.soldUnits === 1 ? "common.saleWordOne" : "common.saleWordOther") }) : tx(lang, "stats.earnsNone")}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm text-muted">Left after cost, with pieces sold and margin</p>
-          <Segmented value={lens} onChange={setLens} label="Rank by" options={[{ id: "product", label: "Product" }, { id: "category", label: "Type" }, { id: "brand", label: "Brand" }]} />
+          <p className="text-sm text-muted">{tx(lang, "stats.earnsSub")}</p>
+          <Segmented value={lens} onChange={setLens} label={tx(lang, "stats.rankBy")} options={[{ id: "product", label: tx(lang, "board.product") }, { id: "category", label: tx(lang, "stats.typeWord") }, { id: "brand", label: tx(lang, "editor.brand") }]} />
         </div>
-        {lens === "brand" && !brandsKnown ? <p className="text-sm text-muted">No piece carries a brand yet. Add brands on the cards and this ranks them.</p> : <Bars key={lens} rows={earnRows} empty="No sales to rank yet." />}
+        {lens === "brand" && !brandsKnown ? <p className="text-sm text-muted">{tx(lang, "stats.noBrandNote")}</p> : <Bars lang={lang} key={lens} rows={earnRows} empty={tx(lang, "stats.noRank")} />}
       </DeskFold>
 
-      <DeskFold s={st} id="numbers" title="Numbers" line={lines.numbers}>
+      <DeskFold s={st} id="numbers" title={tx(lang, "stats.foldNumbers")} line={lines.numbers}>
         <dl className="grid gap-x-6 sm:grid-cols-2">
-          {[
-            ["Taken in", cash(m.revenue)],
-            ["Left after cost", cash(m.profit)],
-            ["Cost of sales", cash(m.costOfSales)],
-            ["Margin", pct(m.margin)],
-            ["Average sale", m.avgSale == null ? "—" : cash(m.avgSale)],
-            ["Given in price cuts", cash(m.priceCuts)],
-            ["Pieces sold", String(m.units.sold)],
-            ["Sales with no price", String(m.units.unpriced)],
-            ["On hand", String(m.units.onHand)],
-            ["On the way", String(m.units.incoming)],
-            ["Still tied up", cash(m.stockCost)],
-            ["In the archive", String(m.units.archived)],
-            ["Average hold", m.days.avg == null ? "—" : `${m.days.avg} d`],
-            ["Longest still here", oldest ? `${oldest.days} d` : "—"],
-            ["Open problems", String(m.units.problems)],
-            ["Kept for yourself", String(m.units.kept)],
-          ].map(([label, value], index) => (
-            <div key={label} className="row-in flex items-baseline justify-between gap-3 border-b border-line py-2" style={{ animationDelay: `${Math.min(index * 25, 300)}ms` }}>
+          {([
+            ["taken", tx(lang, "stats.numTakenIn"), cash(m.revenue)],
+            ["left", tx(lang, "board.leftAfterCost"), cash(m.profit)],
+            ["costsales", tx(lang, "stats.numCostSales"), cash(m.costOfSales)],
+            ["margin", tx(lang, "stats.numMargin"), pct(m.margin)],
+            ["avgsale", tx(lang, "stats.avgSale"), m.avgSale == null ? "—" : cash(m.avgSale)],
+            ["cuts", tx(lang, "stats.numPriceCuts"), cash(m.priceCuts)],
+            ["sold", tx(lang, "stats.numPiecesSold"), String(m.units.sold)],
+            ["unpriced", tx(lang, "stats.numUnpriced"), String(m.units.unpriced)],
+            ["onhand", tx(lang, "floor.onHand"), String(m.units.onHand)],
+            ["onway", tx(lang, "stats.numOnWay"), String(m.units.incoming)],
+            ["tied", tx(lang, "stats.numTied"), cash(m.stockCost)],
+            ["archive", tx(lang, "stats.numArchive"), String(m.units.archived)],
+            ["avghold", tx(lang, "stats.numAvgHold"), m.days.avg == null ? "—" : `${m.days.avg} d`],
+            ["longest", tx(lang, "stats.numLongest"), oldest ? `${oldest.days} d` : "—"],
+            ["problems", tx(lang, "stats.numProblems"), String(m.units.problems)],
+            ["kept", tx(lang, "stats.numKept"), String(m.units.kept)],
+          ] as const).map(([rowId, label, value], index) => (
+            <div key={rowId} className="row-in flex items-baseline justify-between gap-3 border-b border-line py-2" style={{ animationDelay: `${Math.min(index * 25, 300)}ms` }}>
               <dt className="min-w-0 text-sm text-muted">{label}</dt>
-              <dd className={`shrink-0 font-display text-lg leading-none tabular-nums ${label === "Left after cost" && m.profit < 0 ? "text-danger" : ""}`}>{value}</dd>
+              <dd className={`shrink-0 font-display text-lg leading-none tabular-nums ${rowId === "left" && m.profit < 0 ? "text-danger" : ""}`}>{value}</dd>
             </div>
           ))}
         </dl>
       </DeskFold>
 
-      <DeskFold s={st} id="stretch" title="This stretch against the last" line={lines.stretch}>
-        {[{ name: "This week against the week before", c: week }, { name: "This month against the month before", c: month }].map(({ name, c }) => (
+      <DeskFold s={st} id="stretch" title={tx(lang, "stats.foldStretch")} line={lines.stretch}>
+        {[{ name: tx(lang, "stats.weekAgainst"), c: week }, { name: tx(lang, "stats.monthAgainst"), c: month }].map(({ name, c }) => (
           <div key={name} className="mb-3 last:mb-0">
             <Kicker className="mb-1">{name}</Kicker>
             {c.now ? (
               <>
-                <Delta label="Taken in" now={c.now.revenue} before={c.before?.revenue ?? null} format={(n) => cash(n, true)} />
-                <Delta label="Left after cost" now={c.now.profit} before={c.before?.profit ?? null} format={(n) => cash(n, true)} />
-                <Delta label="Sales" now={c.now.units} before={c.before?.units ?? null} format={(n) => String(n)} />
+                <Delta lang={lang} label={tx(lang, "stats.numTakenIn")} now={c.now.revenue} before={c.before?.revenue ?? null} format={(n) => cash(n, true)} />
+                <Delta lang={lang} label={tx(lang, "board.leftAfterCost")} now={c.now.profit} before={c.before?.profit ?? null} format={(n) => cash(n, true)} />
+                <Delta lang={lang} label={tx(lang, "stats.salesWord")} now={c.now.units} before={c.before?.units ?? null} format={(n) => String(n)} />
               </>
-            ) : <p className="text-sm text-muted">No dated sale yet.</p>}
+            ) : <p className="text-sm text-muted">{tx(lang, "stats.noDatedSaleYet")}</p>}
           </div>
         ))}
       </DeskFold>
 
-      <DeskFold s={st} id="pace" title="How fast they sell" line={m.days.median == null ? "A sale needs both its arrival and its sale date to time it." : `Half your sales left within ${m.days.median} days of arriving. ${pct(m.sellThrough)} of what you bought has sold.`}>
-        <Gauge value={m.sellThrough} label="Sell-through" caption={`${m.units.sold} sold of the ${m.units.sold + stockUnits} pieces bought and still counted. Kept and removed pieces stay out.`} />
+      <DeskFold s={st} id="pace" title={tx(lang, "stats.foldPace")} line={m.days.median == null ? tx(lang, "stats.paceNeedDates") : tx(lang, "stats.paceLine", { median: m.days.median, share: pct(m.sellThrough) })}>
+        <Gauge value={m.sellThrough} label={tx(lang, "stats.sellThrough")} caption={tx(lang, "stats.gaugeCaption", { sold: m.units.sold, total: m.units.sold + stockUnits })} />
         {m.days.n ? (
           <div className="mt-5">
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3">
-              <Kicker>Days from arrival to sale</Kicker>
-              <span className="text-xs text-muted tabular-nums">median {m.days.median} d · fastest {m.days.fastest} d · slowest {m.days.slowest} d</span>
+              <Kicker>{tx(lang, "stats.daysArrivalSale")}</Kicker>
+              <span className="text-xs text-muted tabular-nums">{tx(lang, "stats.medianLine", { m: m.days.median ?? 0, f: m.days.fastest ?? 0, s: m.days.slowest ?? 0 })}</span>
             </div>
             <Histogram rows={m.days.buckets} />
           </div>
         ) : null}
         {quick.length ? (
           <div className="mt-5">
-            <Kicker className="mb-2">Quickest to sell, two sales or more</Kicker>
-            <Bars rows={quick.map((row) => ({ label: row.label, value: row.avgDays ?? 0, text: `${row.avgDays} d`, sub: `${row.soldUnits} sold`, tone: TONES.teal }))} limit={5} />
+            <Kicker className="mb-2">{tx(lang, "stats.quickest")}</Kicker>
+            <Bars lang={lang} rows={quick.map((row) => ({ label: row.label, value: row.avgDays ?? 0, text: `${row.avgDays} d`, sub: tx(lang, "stats.soldSub", { n: row.soldUnits }), tone: TONES.teal }))} limit={5} />
           </div>
         ) : null}
       </DeskFold>
 
-      <DeskFold s={st} id="aging" title="How old the stock is" line={m.units.onHand === 0 ? "Nothing on hand." : late ? `${late} on hand ${late === 1 ? "has" : "have"} sat past 90 days, ${cash(lateCost, true)} at cost.` : `Nothing on hand has sat past 90 days.${m.aging.avg != null ? ` The average piece has waited ${m.aging.avg} days.` : ""}`}>
+      <DeskFold s={st} id="aging" title={tx(lang, "stats.foldAging")} line={m.units.onHand === 0 ? tx(lang, "stats.agingNone") : late ? tx(lang, "stats.agingLate", { n: late, verb: lang === "es" ? (late === 1 ? "lleva" : "llevan") : (late === 1 ? "has" : "have"), cost: cash(lateCost, true) }) : `${tx(lang, "stats.agingOk")}${m.aging.avg != null ? tx(lang, "stats.agingAvg", { avg: m.aging.avg }) : ""}`}>
         <AgeColumns buckets={m.aging.buckets} />
-        <p className="mt-3 text-sm text-muted">Pieces on hand by days since they arrived, with their cost under each column.{m.aging.undated ? ` ${m.aging.undated} ${m.aging.undated === 1 ? "has" : "have"} no arrival date and stay out.` : ""}</p>
+        <p className="mt-3 text-sm text-muted">{tx(lang, "stats.agingBody")}{m.aging.undated ? tx(lang, "stats.agingUndated", { n: m.aging.undated, verb: lang === "es" ? (m.aging.undated === 1 ? "tiene" : "tienen") : (m.aging.undated === 1 ? "has" : "have") }) : ""}</p>
         {m.aging.oldest.length ? (
           <ul className="mt-3 border-t border-line">
             {m.aging.oldest.slice(0, 5).map(({ piece, days }, index) => (
               <li key={piece.id} className="row-in flex items-center justify-between gap-3 border-b border-line py-2.5 last:border-b-0" style={{ animationDelay: `${index * 45}ms` }}>
                 <span className="min-w-0">
                   <span className="block text-sm text-ink">{piece.name}</span>
-                  <span className="block text-xs tabular-nums text-muted">{[sizeName(piece), `cost ${cash(piece.costCents)}`, piece.askCents ? `asking ${cash(piece.askCents)}` : "no ask yet"].filter(Boolean).join(" · ")}</span>
+                  <span className="block text-xs tabular-nums text-muted">{[sizeName(piece), tx(lang, "stats.costWord", { x: cash(piece.costCents) }), piece.askCents ? tx(lang, "stats.askingWord", { x: cash(piece.askCents) }) : tx(lang, "stats.noAsk")].filter(Boolean).join(" · ")}</span>
                 </span>
                 <span className="shrink-0 rounded-full px-2.5 py-1 text-xs font-medium tabular-nums" style={{ background: `color-mix(in srgb, ${litTone(ageTone(days))} 24%, transparent)`, color: "var(--v-ink)" }}>{days} d</span>
               </li>
@@ -3030,69 +3069,69 @@ function StatsDesk({
         ) : null}
       </DeskFold>
 
-      <DeskFold s={st} id="stock" title="Stock in money" line={stockUnits ? `${cash(m.stockCost, true)} is waiting on the shelf and on the way.${m.stockAsk ? ` At their asks, the priced pieces would bring ${cash(m.stockAsk, true)}.` : ""}` : "No stock waiting."}>
+      <DeskFold s={st} id="stock" title={tx(lang, "stats.foldStock")} line={stockUnits ? `${tx(lang, "stats.stockLine", { cost: cash(m.stockCost, true) })}${m.stockAsk ? tx(lang, "stats.stockAskPart", { x: cash(m.stockAsk, true) }) : ""}` : tx(lang, "stats.stockNone")}>
         <Split parts={[
-          { label: "On hand", value: m.onHandCost, tone: TONES.green, text: cash(m.onHandCost, true) },
-          { label: "On the way", value: m.incomingCost, tone: TONES.blue, text: cash(m.incomingCost, true) },
+          { label: tx(lang, "floor.onHand"), value: m.onHandCost, tone: TONES.green, text: cash(m.onHandCost, true) },
+          { label: tx(lang, "stats.onTheWay"), value: m.incomingCost, tone: TONES.blue, text: cash(m.incomingCost, true) },
         ]} />
         {m.stockAsk ? (
           <p className="mt-3 text-sm leading-relaxed text-muted">
-            If every priced piece sells at its ask: <span className="tabular-nums text-ink">{cash(m.stockAsk, true)}</span> in, <span className="tabular-nums text-ink">{cash(m.stockAsk - m.stockAskCost, true)}</span> over its cost.{m.unaskedUnits ? ` ${m.unaskedUnits} ${m.unaskedUnits === 1 ? "piece has" : "pieces have"} no asking price yet.` : ""}
+            {tx(lang, "stats.stockBody")} <span className="tabular-nums text-ink">{cash(m.stockAsk, true)}</span>{tx(lang, "stats.stockBodyTail")}<span className="tabular-nums text-ink">{cash(m.stockAsk - m.stockAskCost, true)}</span>{tx(lang, "stats.stockOverCost")}{m.unaskedUnits ? tx(lang, "stats.stockUnasked", { n: m.unaskedUnits, word: tx(lang, m.unaskedUnits === 1 ? "common.piece" : "common.pieces") }) : ""}
           </p>
         ) : null}
         <div className="mt-4">
-          <Kicker className="mb-2">Where the money waits</Kicker>
-          <Bars rows={m.byProduct.filter((row) => row.stockUnits > 0).sort((a, b) => b.stockCost - a.stockCost).map((row) => ({ label: row.label, value: row.stockCost, text: cash(row.stockCost, true), sub: `${row.stockUnits} ${row.stockUnits === 1 ? "piece" : "pieces"}`, tone: TONES.amber }))} empty="Nothing waiting." />
+          <Kicker className="mb-2">{tx(lang, "stats.whereMoneyWaits")}</Kicker>
+          <Bars lang={lang} rows={m.byProduct.filter((row) => row.stockUnits > 0).sort((a, b) => b.stockCost - a.stockCost).map((row) => ({ label: row.label, value: row.stockCost, text: cash(row.stockCost, true), sub: tx(lang, "stats.piecesSub", { n: row.stockUnits, word: tx(lang, row.stockUnits === 1 ? "common.piece" : "common.pieces") }), tone: TONES.amber }))} empty={tx(lang, "stats.nothingWaiting")} />
         </div>
       </DeskFold>
 
-      <DeskFold s={st} id="product" title="By product" line={lines.product}>
-        <SalesBoard title="Sales by product" rows={salesOf(m.sales)} bare />
+      <DeskFold s={st} id="product" title={tx(lang, "history.byProduct")} line={lines.product}>
+        <SalesBoard lang={lang} title={tx(lang, "stats.salesByProduct")} rows={salesOf(m.sales, lang)} bare />
       </DeskFold>
 
-      <DeskFold s={st} id="sizes" title="Sizes" line={topSize && topSize.soldUnits > 1 ? `${topSize.label} sold most: ${topSize.soldUnits} times, ${topSize.stockUnits} still here.` : lines.sizes}>
-        <PairBars rows={sizeRows} aLabel="Sold" bLabel="Still here" extraLabel="% is the share sold" aTone={TONES.blue} limit={8} empty="No sizes yet." />
+      <DeskFold s={st} id="sizes" title={tx(lang, "stats.foldSizes")} line={topSize && topSize.soldUnits > 1 ? tx(lang, "stats.sizeLine", { label: topSize.label, n: topSize.soldUnits, stock: topSize.stockUnits }) : lines.sizes}>
+        <PairBars lang={lang} rows={sizeRows} aLabel={tx(lang, "status.sold")} bLabel={tx(lang, "stats.stillHere")} extraLabel={tx(lang, "stats.shareSold")} aTone={TONES.blue} limit={8} empty={tx(lang, "stats.noSizes")} />
       </DeskFold>
 
-      <DeskFold s={st} id="channels" title="Channels and clients" line={channels.length ? `${channels[0].label} brought the most: ${cash(channels[0].revenue, true)}.` : "No sale names where it sold yet. Add the channel when you mark a sale and this shows where the money comes from."}>
+      <DeskFold s={st} id="channels" title={tx(lang, "stats.foldChannels")} line={channels.length ? tx(lang, "stats.channelLine", { label: channels[0].label, amount: cash(channels[0].revenue, true) }) : tx(lang, "stats.channelNone")}>
         {channels.length ? (
           <div className="mb-4">
-            <Kicker className="mb-2">Where they sold, by money in</Kicker>
+            <Kicker className="mb-2">{tx(lang, "stats.whereSold")}</Kicker>
             <Split parts={channels.slice(0, 6).map((row, i) => ({ label: row.label, value: row.revenue, tone: hue[i % hue.length], text: cash(row.revenue, true) }))} />
           </div>
         ) : null}
         <div>
-          <Kicker className="mb-2">Clients</Kicker>
+          <Kicker className="mb-2">{tx(lang, "stats.clients")}</Kicker>
           {clients.length ? (
-            <Bars rows={clients.map((row) => ({ label: row.label, value: row.revenue, text: cash(row.revenue, true), sub: `${row.soldUnits} ${row.soldUnits === 1 ? "buy" : "buys"}`, tone: TONES.copper }))} limit={5} />
-          ) : <p className="text-sm text-muted">No sale names its buyer yet.</p>}
+            <Bars lang={lang} rows={clients.map((row) => ({ label: row.label, value: row.revenue, text: cash(row.revenue, true), sub: tx(lang, "stats.buysSub", { n: row.soldUnits, word: tx(lang, row.soldUnits === 1 ? "stats.buyOne" : "stats.buyOther") }), tone: TONES.copper }))} limit={5} />
+          ) : <p className="text-sm text-muted">{tx(lang, "stats.noBuyer")}</p>}
         </div>
       </DeskFold>
 
-      <DeskFold s={st} id="sources" title="Bought from" line={sources.length ? (sources.some((row) => row.soldUnits) ? `${sources.slice().sort((a, b) => b.soldUnits - a.soldUnits)[0].label} has sold the most of what it supplied.` : lines.sources) : "No piece names where it was bought yet."}>
-        <PairBars rows={sources.map((row) => ({ label: row.label, a: row.soldUnits, b: row.stockUnits, extra: row.margin != null ? `${pct(row.margin)} margin` : undefined }))} aLabel="Sold" bLabel="Still here" aTone={TONES.teal} empty="Add where you bought a piece and this compares your sources." />
+      <DeskFold s={st} id="sources" title={tx(lang, "editor.boughtFrom")} line={sources.length ? (sources.some((row) => row.soldUnits) ? tx(lang, "stats.sourceLine", { label: sources.slice().sort((a, b) => b.soldUnits - a.soldUnits)[0].label }) : lines.sources) : tx(lang, "stats.sourceNone")}>
+        <PairBars lang={lang} rows={sources.map((row) => ({ label: row.label, a: row.soldUnits, b: row.stockUnits, extra: row.margin != null ? tx(lang, "stats.marginWord", { p: pct(row.margin) }) : undefined }))} aLabel={tx(lang, "status.sold")} bLabel={tx(lang, "stats.stillHere")} aTone={TONES.teal} empty={tx(lang, "stats.sourcesEmpty")} />
       </DeskFold>
 
-      <DeskFold s={st} id="where" title="Where they are" line={lines.where}>
-        <Ring bare title="Where they are" parts={[
-          { label: "On hand", value: m.units.onHand, color: "#5f8f72" },
-          { label: "Incoming", value: m.units.incoming, color: "#5d86ad" },
-          { label: "Sold", value: pieces.filter((piece) => piece.status === "sold").reduce((sum, piece) => sum + piece.qty, 0), color: "#c47b4a" },
-          { label: "Archive", value: m.units.archived, color: "#4f7f8a" },
+      <DeskFold s={st} id="where" title={tx(lang, "stats.foldWhere")} line={lines.where}>
+        <Ring lang={lang} bare title={tx(lang, "stats.foldWhere")} parts={[
+          { label: tx(lang, "floor.onHand"), value: m.units.onHand, color: "#5f8f72" },
+          { label: tx(lang, "status.incoming"), value: m.units.incoming, color: "#5d86ad" },
+          { label: tx(lang, "status.sold"), value: pieces.filter((piece) => piece.status === "sold").reduce((sum, piece) => sum + piece.qty, 0), color: "#c47b4a" },
+          { label: tx(lang, "status.archiveNoun"), value: m.units.archived, color: "#4f7f8a" },
         ]} />
       </DeskFold>
 
-      <DeskFold s={st} id="place" title="Home or car" line={lines.place}>
-        <Ring bare title="Where the live pairs are" parts={[
-          { label: "Home", value: m.stock.filter((piece) => piece.place === "home").reduce((sum, piece) => sum + piece.qty, 0), color: "#5f8f72" },
-          { label: "Car", value: m.stock.filter((piece) => piece.place === "car").reduce((sum, piece) => sum + piece.qty, 0), color: "#5d86ad" },
-          { label: "Not marked", value: m.stock.filter((piece) => !piece.place).reduce((sum, piece) => sum + piece.qty, 0), color: "#b08a3e" },
+      <DeskFold s={st} id="place" title={tx(lang, "stats.foldPlace")} line={lines.place}>
+        <Ring lang={lang} bare title={tx(lang, "stats.foldPlace")} parts={[
+          { label: tx(lang, "editor.home"), value: m.stock.filter((piece) => piece.place === "home").reduce((sum, piece) => sum + piece.qty, 0), color: "#5f8f72" },
+          { label: tx(lang, "editor.car"), value: m.stock.filter((piece) => piece.place === "car").reduce((sum, piece) => sum + piece.qty, 0), color: "#5d86ad" },
+          { label: tx(lang, "stats.notMarked"), value: m.stock.filter((piece) => !piece.place).reduce((sum, piece) => sum + piece.qty, 0), color: "#b08a3e" },
         ]} />
       </DeskFold>
 
       {adsOn ? (
-        <DeskFold s={st} id="ads" title="Ads" line={lines.ads}>
-          <AdBoard ads={ads} pieces={pieces} bare />
+        <DeskFold s={st} id="ads" title={tx(lang, "ads.title")} line={lines.ads}>
+          <AdBoard lang={lang} ads={ads} pieces={pieces} bare />
         </DeskFold>
       ) : null}
     </div>

@@ -1,8 +1,9 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { CalendarRange, Camera, Check, ChevronDown, Copy, ClipboardList, Hourglass, Info, Repeat, TrendingDown, Lightbulb, Megaphone, Ruler, ShoppingBag, Store, Tags, Timer, type LucideIcon } from "lucide-react";
 import type { Advice, AdviceCard } from "@/lib/ventory/advisor";
-import { missingOf } from "@/lib/ventory/advisor";
-import { daysHeld, money, type Piece } from "@/lib/ventory/model";
+import { missingLabel, missingOf } from "@/lib/ventory/advisor";
+import { tx, type Lang } from "@/lib/ventory/i18n";
+import { daysHeld, money, todayISO, type Piece } from "@/lib/ventory/model";
 import { tone as litTone, toneInk } from "@/lib/ventory/tones";
 import { moveList, priceList, restockList } from "@/lib/ventory/insights";
 import { ageTone, cash, halfSize, measure, pct, TONES } from "@/lib/ventory/metrics";
@@ -45,16 +46,20 @@ const FOCUS_OF: Record<string, AdviceFocus> = {
   cost: "cost",
 };
 
-const BUTTON: Record<AdviceFocus, string> = {
-  photo: "Add photo",
-  size: "Add size",
-  ask: "Set price",
-  brand: "Add brand",
-  place: "Set place",
-  date: "Add date",
-  source: "Add source",
-  cost: "Add cost",
+const BUTTON_KEY: Record<AdviceFocus, "adv.addPhoto" | "adv.addSize" | "adv.setPrice" | "adv.addBrand" | "adv.setPlace" | "adv.addDate" | "adv.addSource" | "adv.addCost"> = {
+  photo: "adv.addPhoto",
+  size: "adv.addSize",
+  ask: "adv.setPrice",
+  brand: "adv.addBrand",
+  place: "adv.setPlace",
+  date: "adv.addDate",
+  source: "adv.addSource",
+  cost: "adv.addCost",
 };
+
+function buttonFor(focus: AdviceFocus, lang: Lang): string {
+  return tx(lang, BUTTON_KEY[focus]);
+}
 
 const GLANCE = new Set(["buy", "ads", "sources", "season", "lesson"]);
 
@@ -72,6 +77,8 @@ function leadOf(headline: string) {
 function spoken(text: string) {
   return text
     .replace(/I will not[^.]*/gi, "")
+    .replace(/no (?:lo |la |las )?voy a[^.]*/gi, "")
+    .replace(/no (?:las )?llamaré[^.]*/gi, "")
     .replace(/\s+([.,])/g, "$1")
     .replace(/\s{2,}/g, " ")
     .trim();
@@ -101,23 +108,24 @@ function soldPiece(piece: Piece) {
 }
 
 /** The one decision each glance card asks for, in a full sentence (the figure and chart above it carry the numbers). */
-function decisionLine(card: AdviceCard) {
-  if (card.id === "buy") return "Buy a size again only after it has sold more than once.";
-  if (card.id === "ads") return "Promote a piece only when its asking price is already above what it cost.";
-  if (card.id === "sources") return `Order from a source again only after its pieces have sold more than once. ${spoken(card.body)}`;
-  if (card.id === "season") return "Use the season to list what you already own, not to buy more.";
+function decisionLine(card: AdviceCard, lang: Lang = "en") {
+  if (card.id === "buy") return tx(lang, "adv.buyDecision");
+  if (card.id === "ads") return tx(lang, "adv.adsDecision");
+  if (card.id === "sources") return `${tx(lang, "adv.sourcesDecision")}${spoken(card.body)}`;
+  if (card.id === "season") return tx(lang, "adv.seasonDecision");
   return bySentence(card.body).short;
 }
 
-function needsLine(piece: Piece) {
+function needsLine(piece: Piece, lang: Lang = "en") {
   const missing = missingOf(piece);
-  if (missing.includes("size") && /boot|shoe/i.test(`${piece.category} ${piece.name}`)) return "A boot without a size cannot be filtered to, so it is harder to sell.";
+  if (missing.includes("size") && /boot|shoe/i.test(`${piece.category} ${piece.name}`)) return tx(lang, "adv.bootNoSize");
   return "";
 }
 
 export function AdvisorView({
   advice,
   pieces,
+  lang = "en",
   onOpen,
   onPhoto,
   onKeep,
@@ -127,6 +135,7 @@ export function AdvisorView({
 }: {
   advice: Advice;
   pieces: Piece[];
+  lang?: Lang;
   onOpen: (piece: Piece, focus?: AdviceFocus) => void;
   onPhoto: (piece: Piece, file: File) => void;
   onKeep: (piece: Piece) => void;
@@ -147,10 +156,10 @@ export function AdvisorView({
   const [allPrice, setAllPrice] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
-  const restock = useMemo(() => restockList(pieces), [pieces]);
-  const move = useMemo(() => moveList(pieces), [pieces]);
-  const priceRows = useMemo(() => priceList(pieces), [pieces]);
-  const ageing = useMemo(() => measure(pieces).aging, [pieces]);
+  const restock = useMemo(() => restockList(pieces, todayISO(), lang), [pieces, lang]);
+  const move = useMemo(() => moveList(pieces, todayISO(), lang), [pieces, lang]);
+  const priceRows = useMemo(() => priceList(pieces, lang), [pieces, lang]);
+  const ageing = useMemo(() => measure(pieces, [], { lang }).aging, [pieces, lang]);
   const onHand = pieces.filter((piece) => piece.status === "available").sort((a, b) => b.costCents * b.qty - a.costCents * a.qty);
   const coming = pieces.filter((piece) => piece.status === "incoming").reduce((sum, piece) => sum + piece.costCents * piece.qty, 0);
   const action = pieces.find((piece) => piece.id === advice.actionPieceId) ?? null;
@@ -208,7 +217,7 @@ export function AdvisorView({
   const readiness = (() => {
     const map = new Map<string, { name: string; ready: number; total: number }>();
     for (const piece of onHand) {
-      const name = piece.name.trim() || "Untitled";
+      const name = piece.name.trim() || tx(lang, "common.untitled");
       const row = map.get(name.toLowerCase()) ?? { name, ready: 0, total: 0 };
       row.total += piece.qty;
       if (missingOf(piece).length === 0) row.ready += piece.qty;
@@ -220,7 +229,7 @@ export function AdvisorView({
   const fixes = (["photo", "size", "asking price", "brand", "date", "bought from", "place", "cost"] as const)
     .map((field) => ({
       field,
-      label: field === "asking price" ? "Asking price" : field === "bought from" ? "Bought from" : field[0].toUpperCase() + field.slice(1),
+      label: (() => { const word = missingLabel(field, lang); return word[0].toUpperCase() + word.slice(1); })(),
       focus: FOCUS_OF[field],
       pieces: onHand.filter((piece) => !shownIds.has(piece.id) && missingOf(piece).includes(field)),
     }))
@@ -228,7 +237,7 @@ export function AdvisorView({
     .sort((a, b) => b.pieces.length - a.pieces.length);
   const readyPeak = Math.max(1, ...readiness.map((row) => row.total));
   const restockPeak = Math.max(1, ...restock.map((row) => row.recent));
-  const restockSub = Math.max(...restock.slice(0, allRestock ? undefined : 5).map((row) => `${row.size ? `${row.size} · ` : ""}${row.recent} in 90 days`.length), 8);
+  const restockSub = Math.max(...restock.slice(0, allRestock ? undefined : 5).map((row) => `${row.size ? `${row.size} · ` : ""}${tx(lang, "adv.in90", { n: row.recent })}`.length), 8);
   const moveUnits = move.reduce((sum, row) => sum + row.units, 0);
   const moveCost = move.reduce((sum, row) => sum + row.cost, 0);
   const priceMax = Math.max(1, ...priceRows.slice(0, 12).flatMap((row) => [row.high, row.cost, ...row.asks])) * 1.08;
@@ -256,8 +265,8 @@ export function AdvisorView({
       horizon: aging.horizon,
       title: aged ? aged.piece.name : aging.title,
       figure: days != null ? String(days) : "—",
-      unit: days === 1 ? "day" : "days",
-      caption: days == null ? "no arrival date" : days > 90 ? "on hand, past 90 days" : days > 60 ? "on hand, getting cold" : "on hand, the oldest",
+      unit: tx(lang, days === 1 ? "common.day" : "common.days"),
+      caption: days == null ? tx(lang, "adv.noArrival") : days > 90 ? tx(lang, "adv.onHandPast90") : days > 60 ? tx(lang, "adv.onHandCold") : tx(lang, "adv.onHandOldest"),
       visual: <AgeRamp buckets={ageing.buckets} />,
       lead: text.short,
       rest: text.rest,
@@ -266,7 +275,7 @@ export function AdvisorView({
   for (const card of notes) {
     if (card.id === "lesson") {
       const piece = byId.get(card.pieceIds[0]);
-      const net = card.body.match(/is (-?\$[0-9,]+\.\d{2})\./)?.[1] ?? null;
+      const net = card.body.match(/(?:is|es) (-?\$[0-9,]+\.\d{2})\./)?.[1] ?? null;
       const netCents = net ? Math.round(Number(net.replace(/[$,]/g, "")) * 100) : null;
       const days = piece ? daysHeld(piece.receivedOn, piece.soldOn) : null;
       const sentences = spoken(card.body).split(/(?<=[.!?])\s+/);
@@ -279,8 +288,8 @@ export function AdvisorView({
         horizon: card.horizon,
         title: piece ? piece.name : card.title,
         figure: piece?.saleCents != null ? money(piece.saleCents) : "—",
-        caption: `sold for${days != null ? `, after ${days} ${days === 1 ? "day" : "days"} on hand` : ""}${piece && piece.costCents <= 0 ? ", cost not entered" : ""}`,
-        visual: piece?.saleCents != null && netCents != null && piece.costCents > 0 ? <KeptSplit sale={piece.saleCents} kept={netCents} /> : undefined,
+        caption: lang === "es" ? `vendida por${days != null ? `, después de ${days} ${days === 1 ? "día" : "días"} en inventario` : ""}${piece && piece.costCents <= 0 ? ", sin costo ingresado" : ""}` : `sold for${days != null ? `, after ${days} ${days === 1 ? "day" : "days"} on hand` : ""}${piece && piece.costCents <= 0 ? ", cost not entered" : ""}`,
+        visual: piece?.saleCents != null && netCents != null && piece.costCents > 0 ? <KeptSplit lang={lang} sale={piece.saleCents} kept={netCents} /> : undefined,
         lead: text.short,
         rest: text.rest,
       });
@@ -290,7 +299,9 @@ export function AdvisorView({
       const soldUnits = pieces.filter(soldPiece).reduce((sum, piece) => sum + piece.qty, 0);
       const handUnits = onHand.reduce((sum, piece) => sum + piece.qty, 0);
       const through = soldUnits + handUnits ? soldUnits / (soldUnits + handUnits) : null;
-      const share = card.body.match(/([A-Za-z][A-Za-z ]*?) are (\d+)% of what you are holding/) ?? card.body.match(/pieces are ([a-z ]+) \((\d+)%\)/);
+      const share = lang === "es"
+        ? card.body.match(/piezas son (botas) \((\d+) %\)/) ?? card.body.match(/Las (botas) son el (\d+) %/)
+        : card.body.match(/([A-Za-z][A-Za-z ]*?) are (\d+)% of what you are holding/) ?? card.body.match(/pieces are ([a-z ]+) \((\d+)%\)/);
       glance.push({
         id: card.id,
         icon: ShoppingBag,
@@ -299,15 +310,15 @@ export function AdvisorView({
         horizon: card.horizon,
         title: card.title,
         figure: through == null ? "—" : pct(through),
-        caption: "of what you bought has sold",
-        visual: share ? <ShareBar label={`of what you hold is ${share[1].trim().toLowerCase()}`} share={Number(share[2])} /> : undefined,
-        lead: decisionLine(card),
+        caption: tx(lang, "adv.boughtSoldCaption"),
+        visual: share ? <ShareBar label={tx(lang, "adv.holdShare", { what: share[1].trim().toLowerCase() })} share={Number(share[2])} /> : undefined,
+        lead: decisionLine(card, lang),
         rest: "",
       });
       continue;
     }
     if (card.id === "ads") {
-      const spent = card.body.match(/(?:spend is|spent) (\$[0-9,]+\.\d{2})/)?.[1] ?? "$0.00";
+      const spent = card.body.match(/(?:spend is|spent|gasto en anuncios es|gastado) (\$[0-9,]+\.\d{2})/)?.[1] ?? "$0.00";
       const priced = onHand.filter((piece) => piece.askCents > 0 && piece.costCents > 0);
       const above = priced.filter((piece) => piece.askCents > piece.costCents).length;
       glance.push({
@@ -318,9 +329,9 @@ export function AdvisorView({
         horizon: card.horizon,
         title: card.title,
         figure: spent,
-        caption: "spent on ads so far",
-        visual: priced.length ? <ShareBar label="asking above cost" share={Math.round((above / priced.length) * 100)} count={`${above} of ${priced.length} priced`} /> : undefined,
-        lead: decisionLine(card),
+        caption: tx(lang, "adv.adsSpentCaption"),
+        visual: priced.length ? <ShareBar label={tx(lang, "adv.askingAboveCost")} share={Math.round((above / priced.length) * 100)} count={tx(lang, "adv.ofPriced", { a: above, n: priced.length })} /> : undefined,
+        lead: decisionLine(card, lang),
         rest: "",
       });
       continue;
@@ -343,10 +354,10 @@ export function AdvisorView({
         horizon: card.horizon,
         title: card.title,
         figure: ranked[0] ? String(ranked[0].n) : "0",
-        unit: ranked[0] ? (ranked[0].n === 1 ? "sale" : "sales") : "sales",
-        caption: ranked[0] ? `from ${ranked[0].name}${ranked.length > 1 ? ", the most of any source" : ""}` : "name a source on a sale",
+        unit: tx(lang, ranked[0] && ranked[0].n === 1 ? "common.saleWordOne" : "common.saleWordOther"),
+        caption: ranked[0] ? `${lang === "es" ? "de" : "from"} ${ranked[0].name}${ranked.length > 1 ? tx(lang, "adv.mostOfAny") : ""}` : tx(lang, "adv.nameSource"),
         visual: ranked.length > 1 ? <MiniRank rows={ranked.slice(0, 3)} tone={litTone(TEAL)} /> : undefined,
-        lead: decisionLine(card),
+        lead: decisionLine(card, lang),
         rest: "",
       });
       continue;
@@ -361,10 +372,10 @@ export function AdvisorView({
         horizon: card.horizon,
         title: card.title,
         figure: String(boots),
-        unit: boots === 1 ? "boot" : "boots",
-        caption: "on hand this season",
-        visual: <MonthStrip tone={litTone(TONES.copper)} />,
-        lead: decisionLine(card),
+        unit: tx(lang, boots === 1 ? "adv.bootOne" : "adv.bootOther"),
+        caption: tx(lang, "adv.onHandSeason"),
+        visual: <MonthStrip lang={lang} tone={litTone(TONES.copper)} />,
+        lead: decisionLine(card, lang),
         rest: "",
       });
       continue;
@@ -376,13 +387,13 @@ export function AdvisorView({
   return (
     <div className="mt-4 space-y-5">
       <section data-shot="adv-hero" className="advice-hero framed rounded-3xl bg-panel p-5">
-        <p className="text-[11px] tracking-[0.16em] text-faint uppercase">Your shelf · {advice.stage}</p>
+        <p className="text-[11px] tracking-[0.16em] text-faint uppercase">{tx(lang, "adv.yourShelf")} · {advice.stage}</p>
         <h2 className="mt-2 font-display text-4xl leading-tight break-words">{commas(leadOf(advice.headline))}</h2>
         <div className="mt-4 flex items-center gap-4">
           <ReadyRing ready={advice.ready} total={onHand.length} />
           <div className="min-w-0 flex-1">
-            <p className="font-display text-3xl leading-none tabular-nums">{advice.ready} of {onHand.length} ready</p>
-            <p className="mt-1.5 text-sm text-muted">{onHand.length === 0 ? "Nothing on hand to list." : advice.ready === onHand.length ? "Every piece on hand has its card complete." : `A card is ready when it has its size, photo, cost, asking price, date, brand, source and place.`}</p>
+            <p className="font-display text-3xl leading-none tabular-nums">{tx(lang, "adv.readyOf", { ready: advice.ready, total: onHand.length })}</p>
+            <p className="mt-1.5 text-sm text-muted">{onHand.length === 0 ? tx(lang, "adv.nothingList") : advice.ready === onHand.length ? tx(lang, "adv.everyComplete") : tx(lang, "adv.readyWhen")}</p>
           </div>
         </div>
         {readiness.length ? (
@@ -404,30 +415,31 @@ export function AdvisorView({
           </ul>
         ) : null}
         {readiness.length > 5 ? (
-          <button type="button" className="press mt-3 text-sm text-accent" onClick={() => setAllReady((v) => !v)}>{allReady ? "Show fewer" : `Show all ${readiness.length} products`}</button>
+          <button type="button" className="press mt-3 text-sm text-accent" onClick={() => setAllReady((v) => !v)}>{allReady ? tx(lang, "charts.showFewer") : tx(lang, "adv.showAllProducts", { n: readiness.length })}</button>
         ) : null}
         <div className="mt-4 flex flex-wrap gap-2 text-sm text-ink">
-          <span className="row-in inline-flex items-center gap-2 rounded-full bg-panel-2 px-3 py-1.5 whitespace-nowrap tabular-nums" style={{ animationDelay: "40ms" }}><span className="size-2 shrink-0 rounded-full" style={{ background: litTone(GREEN) }} aria-hidden />On hand {cash(advice.onHandCents)}</span>
-          <span className="row-in inline-flex items-center gap-2 rounded-full bg-panel-2 px-3 py-1.5 whitespace-nowrap tabular-nums" style={{ animationDelay: "90ms" }}><span className="size-2 shrink-0 rounded-full" style={{ background: litTone("#5d86ad") }} aria-hidden />Coming {cash(coming)}</span>
+          <span className="row-in inline-flex items-center gap-2 rounded-full bg-panel-2 px-3 py-1.5 whitespace-nowrap tabular-nums" style={{ animationDelay: "40ms" }}><span className="size-2 shrink-0 rounded-full" style={{ background: litTone(GREEN) }} aria-hidden />{tx(lang, "adv.onHandChip")} {cash(advice.onHandCents)}</span>
+          <span className="row-in inline-flex items-center gap-2 rounded-full bg-panel-2 px-3 py-1.5 whitespace-nowrap tabular-nums" style={{ animationDelay: "90ms" }}><span className="size-2 shrink-0 rounded-full" style={{ background: litTone("#5d86ad") }} aria-hidden />{tx(lang, "adv.comingChip")} {cash(coming)}</span>
         </div>
-        {advice.oldestLabel ? <p className="row-in mt-2.5 flex items-start gap-2 text-sm text-pretty text-muted" style={{ animationDelay: "140ms" }}><span className="mt-1.5 size-2 shrink-0 rounded-full" style={{ background: litTone(AMBER) }} aria-hidden /><span>Oldest on hand: <span className="text-ink"><NoSplit text={advice.oldestLabel} /></span></span></p> : null}
+        {advice.oldestLabel ? <p className="row-in mt-2.5 flex items-start gap-2 text-sm text-pretty text-muted" style={{ animationDelay: "140ms" }}><span className="mt-1.5 size-2 shrink-0 rounded-full" style={{ background: litTone(AMBER) }} aria-hidden /><span>{tx(lang, "adv.oldestOnHand")} <span className="text-ink"><NoSplit text={advice.oldestLabel} /></span></span></p> : null}
       </section>
 
       {action && actionOpen ? (
         <ActionCard
-          kicker="Do this first"
+          lang={lang}
+          kicker={tx(lang, "adv.doFirst")}
           title={action.name}
-          body={`Your priciest piece on hand, it cost ${money(action.costCents)}. ${needsLine(action)}`.trim()}
+          body={`${tx(lang, "adv.priciestBody", { money: money(action.costCents) })}${needsLine(action, lang)}`.trim()}
           piece={action}
           tone="green"
-          button={BUTTON[focusOf(action) ?? "photo"]}
+          button={buttonFor(focusOf(action) ?? "photo", lang)}
           onOpen={() => onOpen(action, focusOf(action) ?? "photo")}
           onPhoto={onPhoto}
           onLater={() => setLater((current) => [...current, "action"])}
-          extra={<PieceActs piece={action} reasonFor={reasonFor} setReasonFor={setReasonFor} onKeep={onKeep} onReturn={onReturn} onRemove={onRemove} onFlag={onFlag} />}
+          extra={<PieceActs lang={lang} piece={action} reasonFor={reasonFor} setReasonFor={setReasonFor} onKeep={onKeep} onReturn={onReturn} onRemove={onRemove} onFlag={onFlag} />}
         />
       ) : action && missingOf(action).length === 0 ? (
-        <DoneLine text={`${action.name} is ready to list`} />
+        <DoneLine text={tx(lang, "adv.readyToList", { name: action.name })} />
       ) : action ? (
         <button type="button" className="press w-full rounded-2xl border border-line bg-panel px-3 py-3 text-left text-sm break-words text-ink" onClick={() => setLater((current) => current.filter((id) => id !== "action"))}>
           {action.name}
@@ -441,13 +453,14 @@ export function AdvisorView({
         if (task.kind === "price") {
           return (
             <ActionCard
+              lang={lang}
               key={task.id}
-              kicker="Price"
-              title="Set asking prices"
-              body={price?.tone === "loss" ? bySentence(price.body).short : `Break-even is the lowest price that leaves you whole. On-hand pieces cost ${average} each.`}
+              kicker={tx(lang, "adv.priceKicker")}
+              title={tx(lang, "adv.setAsking")}
+              body={price?.tone === "loss" ? bySentence(price.body).short : tx(lang, "adv.priceBody", { average: average ?? "" })}
               piece={task.piece}
               tone={price?.tone === "loss" ? "red" : "amber"}
-              button="Price pieces"
+              button={tx(lang, "adv.pricePieces")}
               onOpen={() => task.piece && onOpen(task.piece, "ask")}
               onPhoto={onPhoto}
               onLater={() => setLater((current) => [...current, task.id])}
@@ -457,17 +470,18 @@ export function AdvisorView({
         if (!task.piece || !task.focus) return null;
         return (
           <ActionCard
+            lang={lang}
             key={task.id}
-            kicker="Also today"
+            kicker={tx(lang, "adv.alsoToday")}
             title={task.piece.name}
-            body={[needsLine(task.piece), task.piece.costCents ? `It cost ${money(task.piece.costCents)}.` : ""].filter(Boolean).join(" ")}
+            body={[needsLine(task.piece, lang), task.piece.costCents ? tx(lang, "adv.itCost", { money: money(task.piece.costCents) }) : ""].filter(Boolean).join(" ")}
             piece={task.piece}
             tone="amber"
-            button={BUTTON[task.focus]}
+            button={buttonFor(task.focus, lang)}
             onOpen={() => task.focus && task.piece && onOpen(task.piece, task.focus)}
             onPhoto={onPhoto}
             onLater={() => setLater((current) => [...current, task.id])}
-            extra={<PieceActs piece={task.piece} reasonFor={reasonFor} setReasonFor={setReasonFor} onKeep={onKeep} onReturn={onReturn} onRemove={onRemove} onFlag={onFlag} />}
+            extra={<PieceActs lang={lang} piece={task.piece} reasonFor={reasonFor} setReasonFor={setReasonFor} onKeep={onKeep} onReturn={onReturn} onRemove={onRemove} onFlag={onFlag} />}
           />
         );
       })}
@@ -475,8 +489,8 @@ export function AdvisorView({
       {fixes.length ? (
         <section data-shot="fixes" className="insight advice-in relative overflow-hidden rounded-3xl border border-line bg-panel px-4 pt-4 pb-3" style={{ ["--tone" as string]: litTone(AMBER) }}>
           <span className="tone-edge" aria-hidden />
-          <CardHead icon={ClipboardList} tone={litTone(AMBER)} title="What the cards still need" />
-          <p className="mt-2.5 text-sm leading-relaxed text-muted">Of the {onHand.length} on hand, how many are missing each detail. Open a line to fill it in.</p>
+          <CardHead icon={ClipboardList} tone={litTone(AMBER)} title={tx(lang, "adv.fixesTitle")} />
+          <p className="mt-2.5 text-sm leading-relaxed text-muted">{tx(lang, "adv.fixesSub", { n: onHand.length })}</p>
           <ul className="mt-3 border-t border-line">
             {fixes.map((fix, index) => {
               const open = fixOpen === fix.field;
@@ -496,10 +510,10 @@ export function AdvisorView({
                       {shown.map((piece) => (
                         <button key={piece.id} type="button" className="press flex w-full items-baseline justify-between gap-3 py-1.5 text-left text-sm" onClick={() => onOpen(piece, fix.focus)}>
                           <span className="min-w-0 text-ink">{piece.name}{sizeName(piece) ? <span className="text-muted"> · {sizeName(piece)}</span> : null}</span>
-                          <span className="shrink-0" style={{ color: litTone(AMBER) }}>{BUTTON[fix.focus]}</span>
+                          <span className="shrink-0" style={{ color: litTone(AMBER) }}>{buttonFor(fix.focus, lang)}</span>
                         </button>
                       ))}
-                      {fix.pieces.length > 6 ? <button type="button" className="press mt-1 text-sm text-accent" onClick={() => setFixAll((v) => !v)}>{fixAll ? "Show fewer" : `Show all ${fix.pieces.length}`}</button> : null}
+                      {fix.pieces.length > 6 ? <button type="button" className="press mt-1 text-sm text-accent" onClick={() => setFixAll((v) => !v)}>{fixAll ? tx(lang, "charts.showFewer") : tx(lang, "charts.showAll", { n: fix.pieces.length })}</button> : null}
                     </div>
                   ) : null}
                 </li>
@@ -509,112 +523,112 @@ export function AdvisorView({
         </section>
       ) : null}
 
-      {donePieces.length > 0 && donePieces.length <= 3 ? donePieces.map((piece) => <DoneLine key={piece.id} text={`${piece.name} is ready to list`} />) : donePieces.length > 3 ? <DoneLine text={`${donePieces.length} pieces are ready to list`} /> : null}
+      {donePieces.length > 0 && donePieces.length <= 3 ? donePieces.map((piece) => <DoneLine key={piece.id} text={tx(lang, "adv.readyToList", { name: piece.name })} />) : donePieces.length > 3 ? <DoneLine text={tx(lang, "adv.piecesReady", { n: donePieces.length })} /> : null}
 
       {restock.length || move.length || priceRows.length ? (
         <section className="space-y-3">
-          <p className="text-[11px] tracking-[0.16em] text-faint uppercase">Next moves, from your own sales</p>
+          <p className="text-[11px] tracking-[0.16em] text-faint uppercase">{tx(lang, "adv.nextMoves")}</p>
           {restock.length ? (
             <article data-shot="restock" className="insight advice-in relative overflow-hidden rounded-3xl border border-line bg-panel px-4 pt-3.5 pb-4" style={{ ["--tone" as string]: litTone(GREEN) }}>
               <span className="tone-edge" aria-hidden />
-              <Kick icon={Repeat} tone={litTone(GREEN)} text="Buy again" />
+              <Kick icon={Repeat} tone={litTone(GREEN)} text={tx(lang, "adv.buyAgain")} />
               <h3 className="mt-2.5 font-display text-xl leading-snug"><NoSplit text={restock[0].product} /></h3>
               <p className="mt-1.5 text-sm leading-relaxed text-ink">
-                {restock[0].sold} sold{restock[0].avgDays != null ? `, about ${restock[0].avgDays} days each` : ""}{restock[0].size ? `, ${restock[0].size} most of all` : ""}. {restock[0].left === 0 ? "None left." : `${restock[0].left} still here${restock[0].weeksLeft != null ? `, about ${restock[0].weeksLeft} ${restock[0].weeksLeft === 1 ? "week" : "weeks"} at this pace` : ""}.`}
+                {lang === "es" ? <>{restock[0].sold} vendidas{restock[0].avgDays != null ? `, unos ${restock[0].avgDays} días cada una` : ""}{restock[0].size ? `, ${restock[0].size} sobre todo` : ""}. {restock[0].left === 0 ? "No queda ninguna." : `Quedan ${restock[0].left}${restock[0].weeksLeft != null ? `, unas ${restock[0].weeksLeft} ${restock[0].weeksLeft === 1 ? "semana" : "semanas"} a este ritmo` : ""}.`}</> : <>{restock[0].sold} sold{restock[0].avgDays != null ? `, about ${restock[0].avgDays} days each` : ""}{restock[0].size ? `, ${restock[0].size} most of all` : ""}. {restock[0].left === 0 ? "None left." : `${restock[0].left} still here${restock[0].weeksLeft != null ? `, about ${restock[0].weeksLeft} ${restock[0].weeksLeft === 1 ? "week" : "weeks"} at this pace` : ""}.`}</>}
               </p>
               <ul className="mt-3.5 space-y-3">
                 {restock.slice(0, allRestock ? undefined : 5).map((row, index) => (
                   <li key={row.product} className="row-in" style={{ animationDelay: `${index * 45}ms` }}>
                     <div className="flex items-center justify-between gap-3 text-sm">
                       <span className="min-w-0 text-ink"><NoSplit text={row.product} /></span>
-                      <span className="shrink-0 rounded-full px-2 py-0.5 text-xs whitespace-nowrap tabular-nums" style={{ background: row.left === 0 || (row.weeksLeft != null && row.weeksLeft <= 4) ? `color-mix(in srgb, ${litTone(AMBER)} 24%, transparent)` : "var(--v-panel-2)", color: "var(--v-ink)" }}>{row.left === 0 ? "sold out" : `${row.left} left`}</span>
+                      <span className="shrink-0 rounded-full px-2 py-0.5 text-xs whitespace-nowrap tabular-nums" style={{ background: row.left === 0 || (row.weeksLeft != null && row.weeksLeft <= 4) ? `color-mix(in srgb, ${litTone(AMBER)} 24%, transparent)` : "var(--v-panel-2)", color: "var(--v-ink)" }}>{row.left === 0 ? tx(lang, "adv.soldOut") : tx(lang, "adv.leftCount", { n: row.left })}</span>
                     </div>
                     <div className="mt-1.5 grid items-center gap-3 text-xs" style={{ gridTemplateColumns: `minmax(0,1fr) calc(${restockSub}ch * 0.86)` }}>
                       <span className="h-1.5 overflow-hidden rounded-full bg-panel-2"><span className="bar-fill lit-bar block h-full rounded-full" style={{ width: `${Math.max(3, Math.round((row.recent / Math.max(1, restockPeak)) * 100))}%`, background: litTone(GREEN), ["--glow" as string]: litTone(GREEN), animationDelay: `${index * 45}ms` }} /></span>
-                      <span className="text-right whitespace-nowrap tabular-nums text-muted">{row.size ? `${row.size} · ` : ""}{row.recent} in 90 days</span>
+                      <span className="text-right whitespace-nowrap tabular-nums text-muted">{row.size ? `${row.size} · ` : ""}{tx(lang, "adv.in90", { n: row.recent })}</span>
                     </div>
                   </li>
                 ))}
               </ul>
-              {restock.length > 5 ? <button type="button" className="press mt-3 text-sm text-accent" onClick={() => setAllRestock((v) => !v)}>{allRestock ? "Show fewer" : `Show all ${restock.length}`}</button> : null}
-              <p className="mt-3 text-xs leading-relaxed text-muted">Only products that sold more than once. The bar is the last 90 days.</p>
+              {restock.length > 5 ? <button type="button" className="press mt-3 text-sm text-accent" onClick={() => setAllRestock((v) => !v)}>{allRestock ? tx(lang, "charts.showFewer") : tx(lang, "charts.showAll", { n: restock.length })}</button> : null}
+              <p className="mt-3 text-xs leading-relaxed text-muted">{tx(lang, "adv.restockNote")}</p>
             </article>
           ) : null}
           {move.length ? (
             <article data-shot="move" className="insight advice-in relative overflow-hidden rounded-3xl border border-line bg-panel px-4 pt-3.5 pb-4" style={{ ["--tone" as string]: litTone(AMBER) }}>
               <span className="tone-edge" aria-hidden />
-              <Kick icon={TrendingDown} tone={litTone(AMBER)} text="Move these" />
-              <h3 className="mt-2.5 font-display text-xl leading-snug">{moveUnits} {moveUnits === 1 ? "piece has" : "pieces have"} outstayed their pace</h3>
-              <p className="mt-1.5 text-sm leading-relaxed text-ink">{cash(moveCost)} at cost is waiting past the time these products usually take to sell. A first cut is about 10% (20% past 90 days), never under what the piece cost.</p>
+              <Kick icon={TrendingDown} tone={litTone(AMBER)} text={tx(lang, "adv.moveThese")} />
+              <h3 className="mt-2.5 font-display text-xl leading-snug">{tx(lang, moveUnits === 1 ? "adv.outstayedOne" : "adv.outstayedOther", { n: moveUnits })}</h3>
+              <p className="mt-1.5 text-sm leading-relaxed text-ink">{tx(lang, "adv.moveBody", { cash: cash(moveCost) })}</p>
               <ul className="mt-3 border-t border-line">
                 {move.slice(0, allMove ? undefined : 4).map((row, index) => (
                   <li key={row.product} className="row-in border-b border-line py-2 last:border-b-0" style={{ animationDelay: `${index * 45}ms` }}>
                     <button type="button" className="press grid w-full grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-0.5 text-left" onClick={() => onOpen(row.pieces[0].piece, "ask")}>
                       <span className="min-w-0 text-sm text-ink"><NoSplit text={row.product} /></span>
-                      <span className="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap tabular-nums" style={{ background: `color-mix(in srgb, ${litTone(AMBER)} 18%, transparent)`, color: litTone(AMBER) }}>{row.cut != null ? `Try ${cash(row.cut, true)}` : "Set a price"}</span>
-                      <span className="col-span-2 text-xs tabular-nums text-muted">{row.units} {row.units === 1 ? "piece" : "pieces"} · oldest {row.oldest} d{row.pace != null ? ` · usually ${row.pace} d` : ""}{row.ask != null ? ` · asking ${cash(row.ask, true)}` : ""}</span>
+                      <span className="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap tabular-nums" style={{ background: `color-mix(in srgb, ${litTone(AMBER)} 18%, transparent)`, color: litTone(AMBER) }}>{row.cut != null ? tx(lang, "adv.tryPrice", { x: cash(row.cut, true) }) : tx(lang, "adv.setAPrice")}</span>
+                      <span className="col-span-2 text-xs tabular-nums text-muted">{lang === "es" ? <>{row.units} {row.units === 1 ? "pieza" : "piezas"} · la mayor {row.oldest} d{row.pace != null ? ` · suele tardar ${row.pace} d` : ""}{row.ask != null ? ` · pide ${cash(row.ask, true)}` : ""}</> : <>{row.units} {row.units === 1 ? "piece" : "pieces"} · oldest {row.oldest} d{row.pace != null ? ` · usually ${row.pace} d` : ""}{row.ask != null ? ` · asking ${cash(row.ask, true)}` : ""}</>}</span>
                     </button>
                   </li>
                 ))}
               </ul>
-              {move.length > 4 ? <button type="button" className="press mt-3 text-sm text-accent" onClick={() => setAllMove((v) => !v)}>{allMove ? "Show fewer" : `Show all ${move.length} products`}</button> : null}
+              {move.length > 4 ? <button type="button" className="press mt-3 text-sm text-accent" onClick={() => setAllMove((v) => !v)}>{allMove ? tx(lang, "charts.showFewer") : tx(lang, "adv.showAllProducts", { n: move.length })}</button> : null}
             </article>
           ) : null}
           {priceRows.length ? (
             <article data-shot="price" className="insight advice-in relative overflow-hidden rounded-3xl border border-line bg-panel px-4 pt-3.5 pb-4" style={{ ["--tone" as string]: litTone(TEAL) }}>
               <span className="tone-edge" aria-hidden />
-              <Kick icon={Tags} tone={litTone(TEAL)} text="Price from your sales" />
-              <h3 className="mt-2.5 font-display text-xl leading-snug">What buyers actually paid</h3>
+              <Kick icon={Tags} tone={litTone(TEAL)} text={tx(lang, "adv.priceFromSales")} />
+              <h3 className="mt-2.5 font-display text-xl leading-snug">{tx(lang, "adv.buyersPaid")}</h3>
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-                <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-4 rounded-full" style={{ background: litTone(GREEN), opacity: 0.45 }} />Range paid</span>
-                <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-full" style={{ background: litTone(GREEN) }} />Usual</span>
-                <span className="inline-flex items-center gap-1.5"><span className="size-2 rotate-45 rounded-[2px]" style={{ background: litTone(AMBER) }} />Your asks</span>
-                <span className="inline-flex items-center gap-1.5"><span className="h-3 w-0.5 rounded-full bg-muted" />Cost</span>
+                <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-4 rounded-full" style={{ background: litTone(GREEN), opacity: 0.45 }} /> {tx(lang, "adv.rangePaid")}</span>
+                <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-full" style={{ background: litTone(GREEN) }} /> {tx(lang, "adv.usual")}</span>
+                <span className="inline-flex items-center gap-1.5"><span className="size-2 rotate-45 rounded-[2px]" style={{ background: litTone(AMBER) }} /> {tx(lang, "adv.yourAsks")}</span>
+                <span className="inline-flex items-center gap-1.5"><span className="h-3 w-0.5 rounded-full bg-muted" /> {tx(lang, "adv.costWord")}</span>
               </div>
               <ul className="mt-3 space-y-3.5">
                 {priceRows.slice(0, allPrice ? undefined : 4).map((row, index) => (
                   <li key={row.product} className="row-in" style={{ animationDelay: `${index * 45}ms` }}>
                     <div className="flex items-baseline justify-between gap-3 text-sm">
                       <span className="min-w-0 text-ink">{row.product}</span>
-                      <span className="shrink-0 tabular-nums" style={{ color: row.below ? "var(--v-danger)" : "var(--v-ink)" }}>ask ${Math.round(row.suggest / 100)}</span>
+                      <span className="shrink-0 tabular-nums" style={{ color: row.below ? "var(--v-danger)" : "var(--v-ink)" }}>{tx(lang, "adv.askWord")} ${Math.round(row.suggest / 100)}</span>
                     </div>
                     <PriceTrack cost={row.cost} low={row.low} high={row.high} median={row.median} asks={row.asks} scaleMax={priceMax} />
-                    <p className="text-xs tabular-nums text-muted">{row.low === row.high ? `${row.sales} sales at ${money(row.low)}` : `${row.sales} sales from ${money(row.low)} to ${money(row.high)}`}{row.below ? ` · ${row.below} asking under cost` : row.above ? ` · ${row.above} asking above any sale` : row.unasked ? ` · ${row.unasked} with no ask` : ""}</p>
+                    <p className="text-xs tabular-nums text-muted">{lang === "es" ? <>{row.low === row.high ? `${row.sales} ventas a ${money(row.low)}` : `${row.sales} ventas de ${money(row.low)} a ${money(row.high)}`}{row.below ? ` · ${row.below} con precio bajo el costo` : row.above ? ` · ${row.above} con precio sobre toda venta` : row.unasked ? ` · ${row.unasked} sin precio` : ""}</> : <>{row.low === row.high ? `${row.sales} sales at ${money(row.low)}` : `${row.sales} sales from ${money(row.low)} to ${money(row.high)}`}{row.below ? ` · ${row.below} asking under cost` : row.above ? ` · ${row.above} asking above any sale` : row.unasked ? ` · ${row.unasked} with no ask` : ""}</>}</p>
                   </li>
                 ))}
               </ul>
-              {priceRows.length > 4 ? <button type="button" className="press mt-3 text-sm text-accent" onClick={() => setAllPrice((v) => !v)}>{allPrice ? "Show fewer" : `Show all ${priceRows.length}`}</button> : null}
+              {priceRows.length > 4 ? <button type="button" className="press mt-3 text-sm text-accent" onClick={() => setAllPrice((v) => !v)}>{allPrice ? tx(lang, "charts.showFewer") : tx(lang, "charts.showAll", { n: priceRows.length })}</button> : null}
             </article>
           ) : null}
         </section>
       ) : null}
 
       <section className="space-y-3">
-        <p className="text-[11px] tracking-[0.16em] text-faint uppercase">What makes the next sale easier</p>
+        <p className="text-[11px] tracking-[0.16em] text-faint uppercase">{tx(lang, "adv.nextSaleEasier")}</p>
 
         <article data-shot="sizes" className="insight advice-in relative overflow-hidden rounded-3xl border border-line bg-panel px-4 pt-4 pb-4" style={{ ["--tone" as string]: litTone(TONES.blue) }}>
           <span className="tone-edge" aria-hidden />
-          <CardHead icon={Ruler} tone={litTone(TONES.blue)} title="Which size is selling" />
+          <CardHead icon={Ruler} tone={litTone(TONES.blue)} title={tx(lang, "adv.whichSize")} />
           {sizes.length === 0 ? (
-            <p className="mt-3 text-sm leading-relaxed text-pretty text-ink">No size has sold yet, so none can be called the one to reorder. A size only ranks after it leaves.</p>
+            <p className="mt-3 text-sm leading-relaxed text-pretty text-ink">{tx(lang, "adv.noSizeSold")}</p>
           ) : (
             <>
-              <Figure tone={litTone(TONES.blue)} value={sizes[0].label} caption={`sold ${sizes[0].n} ${sizes[0].n === 1 ? "time" : "times"}${sizes[0].days.length ? `, about ${Math.round(sizes[0].days.reduce((sum, days) => sum + days, 0) / sizes[0].days.length)} days each` : ""}`} />
-              <p className="mt-2.5 text-sm leading-relaxed text-pretty text-ink">{sizes[0].n === 1 ? "One sale is a lesson, not a size to stock." : "That is the size to buy again."}</p>
+              <Figure tone={litTone(TONES.blue)} value={sizes[0].label} caption={lang === "es" ? `vendida ${sizes[0].n} ${sizes[0].n === 1 ? "vez" : "veces"}${sizes[0].days.length ? `, unos ${Math.round(sizes[0].days.reduce((sum, days) => sum + days, 0) / sizes[0].days.length)} días cada una` : ""}` : `sold ${sizes[0].n} ${sizes[0].n === 1 ? "time" : "times"}${sizes[0].days.length ? `, about ${Math.round(sizes[0].days.reduce((sum, days) => sum + days, 0) / sizes[0].days.length)} days each` : ""}`} />
+              <p className="mt-2.5 text-sm leading-relaxed text-pretty text-ink">{sizes[0].n === 1 ? tx(lang, "adv.oneSaleLesson") : tx(lang, "adv.sizeToBuy")}</p>
               <div className="mt-3.5">
-                <PairBars rows={sizes.map((row) => ({ label: row.label, a: row.n, b: sizeLeft.get(row.label) ?? 0 }))} aLabel="Sold" bLabel="Still here" aTone={TONES.blue} limit={6} />
+                <PairBars lang={lang} rows={sizes.map((row) => ({ label: row.label, a: row.n, b: sizeLeft.get(row.label) ?? 0 }))} aLabel={tx(lang, "status.sold")} bLabel={tx(lang, "stats.stillHere")} aTone={TONES.blue} limit={6} />
               </div>
             </>
           )}
           {unsized.length ? (
             <div className="mt-4 border-t border-line pt-3">
-              <p className="text-[11px] font-medium tracking-[0.14em] text-faint uppercase">No size on the card</p>
+              <p className="text-[11px] font-medium tracking-[0.14em] text-faint uppercase">{tx(lang, "adv.noSizeCard")}</p>
               <ul className="mt-1">
                 {unsized.slice(0, 5).map((piece) => (
                   <li key={piece.id}>
                     <button type="button" className="press flex w-full items-center justify-between gap-3 py-1.5 text-left text-sm text-ink" onClick={() => onOpen(piece, "size")}>
                       <span className="min-w-0"><NoSplit text={piece.name} /></span>
-                      <span className="shrink-0 rounded-full px-3 py-1 text-xs font-medium" style={{ background: `color-mix(in srgb, ${litTone(AMBER)} 18%, transparent)`, color: litTone(AMBER) }}>Add size</span>
+                      <span className="shrink-0 rounded-full px-3 py-1 text-xs font-medium" style={{ background: `color-mix(in srgb, ${litTone(AMBER)} 18%, transparent)`, color: litTone(AMBER) }}>{tx(lang, "adv.addSize")}</span>
                     </button>
                   </li>
                 ))}
@@ -625,29 +639,29 @@ export function AdvisorView({
 
         <article data-shot="sit" className="insight advice-in relative overflow-hidden rounded-3xl border border-line bg-panel px-4 pt-4 pb-4" style={{ ["--tone" as string]: litTone(TONES.teal) }}>
           <span className="tone-edge" aria-hidden />
-          <CardHead icon={Timer} tone={litTone(TONES.teal)} title="How long they sit" />
+          <CardHead icon={Timer} tone={litTone(TONES.teal)} title={tx(lang, "adv.howLongSit")} />
           {soldPace == null ? (
-            <p className="mt-3 text-sm leading-relaxed text-pretty text-ink">Nothing has sold with both dates, so this is waiting time, not a selling pace.</p>
+            <p className="mt-3 text-sm leading-relaxed text-pretty text-ink">{tx(lang, "adv.noPaceYet")}</p>
           ) : (
             <>
-              <Figure tone={litTone(TONES.teal)} value={String(soldPace)} unit={soldPace === 1 ? "day" : "days"} caption="a sold piece took, on average" />
-              <p className="mt-2.5 text-sm leading-relaxed text-pretty text-ink">Use that pace when a piece below is already past it.</p>
+              <Figure tone={litTone(TONES.teal)} value={String(soldPace)} unit={tx(lang, soldPace === 1 ? "common.day" : "common.days")} caption={tx(lang, "adv.paceCaption")} />
+              <p className="mt-2.5 text-sm leading-relaxed text-pretty text-ink">{tx(lang, "adv.usePace")}</p>
             </>
           )}
           <div className="mt-4"><AgeColumns buckets={ageing.buckets} /></div>
           <ul className="mt-3 border-t border-line">
             {waiting.slice(0, 5).map(({ piece, days }) => (
               <li key={piece.id} className="flex items-center justify-between gap-3 border-b border-line py-2 text-sm text-ink last:border-b-0">
-                <span className="min-w-0"><NoSplit text={piece.name} />{piece.status === "incoming" ? <span className="text-muted"> · on the way</span> : null}</span>
-                <span className="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium tabular-nums" style={{ background: days == null ? "var(--v-panel-2)" : `color-mix(in srgb, ${litTone(ageTone(days))} 24%, transparent)` }}>{days == null ? "No date" : `${days} d`}</span>
+                <span className="min-w-0"><NoSplit text={piece.name} />{piece.status === "incoming" ? <span className="text-muted">{tx(lang, "adv.onTheWay")}</span> : null}</span>
+                <span className="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium tabular-nums" style={{ background: days == null ? "var(--v-panel-2)" : `color-mix(in srgb, ${litTone(ageTone(days))} 24%, transparent)` }}>{days == null ? tx(lang, "stats.noDate") : `${days} d`}</span>
               </li>
             ))}
           </ul>
-          {waiting.length > 5 ? <p className="mt-2 text-xs text-pretty text-muted">The five that have waited longest, of {waiting.length} on hand and on the way.</p> : null}
+          {waiting.length > 5 ? <p className="mt-2 text-xs text-pretty text-muted">{tx(lang, "adv.waitingNote", { n: waiting.length })}</p> : null}
         </article>
 
         {glance.map((item) => (
-          <InsightCard key={item.id} shot={item.id} {...item} open={more.includes(item.id)} onToggle={() => setMore((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])} />
+          <InsightCard key={item.id} shot={item.id} {...item} lang={lang} open={more.includes(item.id)} onToggle={() => setMore((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])} />
         ))}
       </section>
 
@@ -655,8 +669,8 @@ export function AdvisorView({
         <button type="button" className="press flex w-full items-center gap-2 px-4 py-2.5 text-left" aria-expanded={countOpen} onClick={() => setCountOpen((open) => !open)}>
           <ChevronDown className={`size-4 shrink-0 text-muted transition-transform ${countOpen ? "" : "-rotate-90"}`} strokeWidth={1.75} />
           <span className="min-w-0 flex-1">
-            <span className="block font-display text-base leading-tight">How the numbers are counted</span>
-            {!countOpen ? <span className="mt-0.5 block text-xs leading-snug text-muted">The {counted.length} rules behind every figure here, in plain words.</span> : null}
+            <span className="block font-display text-base leading-tight">{tx(lang, "adv.countedTitle")}</span>
+            {!countOpen ? <span className="mt-0.5 block text-xs leading-snug text-muted">{tx(lang, "adv.countedSub", { n: counted.length })}</span> : null}
           </span>
         </button>
         {countOpen ? (
@@ -671,7 +685,7 @@ export function AdvisorView({
                     <span className="mt-0.5 shrink-0 rounded-full border border-line px-2 py-0.5 text-[11px] leading-tight whitespace-nowrap text-faint">{card.horizon}</span>
                   </div>
                   <p className="mt-1.5 text-sm leading-relaxed text-pretty text-ink">{commas(open && text.rest ? `${text.short} ${text.rest}` : text.short)}</p>
-                  {text.rest ? <Expander open={open} onToggle={() => setMore((current) => open ? current.filter((id) => id !== card.id) : [...current, card.id])} /> : null}
+                  {text.rest ? <Expander lang={lang} open={open} onToggle={() => setMore((current) => open ? current.filter((id) => id !== card.id) : [...current, card.id])} /> : null}
                 </div>
               );
             })}
@@ -682,7 +696,7 @@ export function AdvisorView({
       <div data-shot="footer" className="flex items-center gap-4 border-t border-line pt-4">
         <p className="flex min-w-0 flex-1 items-start gap-2 text-xs leading-relaxed text-pretty text-muted">
           <Info className="mt-0.5 size-3.5 shrink-0" strokeWidth={1.75} aria-hidden />
-          <span>Anything missing from a card is named here, never invented.</span>
+          <span>{tx(lang, "adv.footerNote")}</span>
         </p>
         <button type="button" className="press inline-flex h-10 shrink-0 items-center gap-2 rounded-full border border-line bg-accent-soft px-4 text-sm font-medium whitespace-nowrap text-ink" onClick={async () => {
           // Verify before claiming (button audit V-1): "Copied" only once the clipboard
@@ -699,7 +713,7 @@ export function AdvisorView({
           }
         }}>
           {copied ? <Check className="size-4" strokeWidth={2} style={{ color: litTone(GREEN) }} aria-hidden /> : <Copy className="size-4" strokeWidth={1.75} aria-hidden />}
-          <span className={copyFailed ? "text-danger" : undefined}>{copied ? "Copied" : copyFailed ? "Could not copy" : "Copy plan"}</span>
+          <span className={copyFailed ? "text-danger" : undefined}>{copied ? tx(lang, "common.copied") : copyFailed ? tx(lang, "adv.copyFailed") : tx(lang, "adv.copyPlan")}</span>
         </button>
       </div>
     </div>
@@ -707,6 +721,7 @@ export function AdvisorView({
 }
 
 function ActionCard({
+  lang = "en",
   kicker,
   title,
   body,
@@ -718,6 +733,7 @@ function ActionCard({
   onLater,
   extra,
 }: {
+  lang?: Lang;
   kicker: string;
   title: string;
   body: string;
@@ -735,21 +751,21 @@ function ActionCard({
     <article data-shot={`action-${kicker.replace(/\W+/g, "-").toLowerCase()}`} className="insight advice-in framed relative overflow-hidden rounded-3xl border border-line p-4" style={{ ["--tone" as string]: color, background: `color-mix(in srgb, ${color} 7%, var(--v-panel))` }}>
       <span className="tone-edge" aria-hidden />
       <div className="flex items-start gap-3">
-        {piece ? <Thumb piece={piece} onPhoto={onPhoto} /> : null}
+        {piece ? <Thumb lang={lang} piece={piece} onPhoto={onPhoto} /> : null}
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-medium tracking-[0.14em] uppercase" style={{ color }}>{kicker}</p>
           <h3 className="mt-2.5 font-display text-xl leading-snug"><NoSplit text={title} /></h3>
-          {piece && piece.name === title && (sizeName(piece) || piece.receivedOn) ? <p className="mt-0.5 text-xs tabular-nums text-muted">{[sizeName(piece), piece.receivedOn ? `arrived ${new Date(`${piece.receivedOn}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""].filter(Boolean).join(" · ")}</p> : null}
+          {piece && piece.name === title && (sizeName(piece) || piece.receivedOn) ? <p className="mt-0.5 text-xs tabular-nums text-muted">{[sizeName(piece), piece.receivedOn ? `${lang === "es" ? "llegó el" : "arrived"} ${new Date(`${piece.receivedOn}T12:00:00`).toLocaleDateString(lang === "es" ? "es" : "en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""].filter(Boolean).join(" · ")}</p> : null}
           {body ? <p className="mt-2 text-sm leading-relaxed text-pretty text-ink">{body}</p> : null}
           {missing.length ? (
             <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-              <span className="text-xs text-muted">Missing</span>
-              {missing.map((item) => <span key={item} className="rounded-full px-2.5 py-0.5 text-xs whitespace-nowrap" style={{ color: litTone(AMBER), boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${litTone(AMBER)} 55%, transparent)` }}>{item}</span>)}
+              <span className="text-xs text-muted">{tx(lang, "adv.missing")}</span>
+              {missing.map((item) => <span key={item} className="rounded-full px-2.5 py-0.5 text-xs whitespace-nowrap" style={{ color: litTone(AMBER), boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${litTone(AMBER)} 55%, transparent)` }}>{missingLabel(item, lang)}</span>)}
             </div>
           ) : null}
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <button type="button" className="press h-11 rounded-full px-4 text-sm font-medium" style={{ background: color, color: toneInk("#f3f0e8") }} onClick={onOpen}>{button}</button>
-            <button type="button" className="press h-11 rounded-full border border-line px-4 text-sm text-ink" onClick={onLater}>Later</button>
+            <button type="button" className="press h-11 rounded-full border border-line px-4 text-sm text-ink" onClick={onLater}>{tx(lang, "adv.later")}</button>
           </div>
           {extra}
         </div>
@@ -758,10 +774,10 @@ function ActionCard({
   );
 }
 
-function Thumb({ piece, onPhoto }: { piece: Piece; onPhoto: (piece: Piece, file: File) => void }) {
+function Thumb({ piece, onPhoto, lang = "en" }: { piece: Piece; onPhoto: (piece: Piece, file: File) => void; lang?: Lang }) {
   if (piece.photo) return <img src={piece.photo} alt="" className="size-16 shrink-0 rounded-2xl object-cover" />;
   return (
-    <label className="grid size-16 shrink-0 cursor-pointer place-items-center rounded-2xl border border-dashed border-line text-ink" aria-label={`Add photo of ${piece.name}`}>
+    <label className="grid size-16 shrink-0 cursor-pointer place-items-center rounded-2xl border border-dashed border-line text-ink" aria-label={tx(lang, "adv.addPhotoOf", { name: piece.name })}>
       <Camera className="size-5" strokeWidth={1.75} />
       <input
         type="file"
@@ -787,6 +803,7 @@ function DoneLine({ text }: { text: string }) {
 }
 
 function PieceActs({
+  lang = "en",
   piece,
   reasonFor,
   setReasonFor,
@@ -795,6 +812,7 @@ function PieceActs({
   onRemove,
   onFlag,
 }: {
+  lang?: Lang;
   piece: Piece;
   reasonFor: string | null;
   setReasonFor: (id: string | null) => void;
@@ -805,13 +823,13 @@ function PieceActs({
 }) {
   return (
     <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink">
-      {piece.status === "available" ? <button type="button" className="press" onClick={() => onKeep(piece)}>Keep</button> : null}
-      {piece.status === "kept" ? <button type="button" className="press" onClick={() => onReturn(piece)}>Shelve</button> : null}
-      {piece.status === "incoming" ? <button type="button" className="press" onClick={() => onFlag(piece)}>Still coming — mark it late</button> : null}
-      {piece.status === "incoming" ? <button type="button" className="press" onClick={() => onReturn(piece)}>It's here</button> : null}
-      {(piece.status === "sold" || piece.wasSold) && piece.status !== "kept" && piece.status !== "available" ? <button type="button" className="press" onClick={() => onReturn(piece)}>Came back</button> : null}
-      {piece.status === "available" || piece.status === "incoming" ? <button type="button" className="press" onClick={() => setReasonFor(reasonFor === piece.id ? null : piece.id)}>Remove</button> : null}
-      {reasonFor === piece.id ? ["Gifted", "Damaged", "Sent back"].map((reason) => (
+      {piece.status === "available" ? <button type="button" className="press" onClick={() => onKeep(piece)}>{tx(lang, "adv.keep")}</button> : null}
+      {piece.status === "kept" ? <button type="button" className="press" onClick={() => onReturn(piece)}>{tx(lang, "adv.shelve")}</button> : null}
+      {piece.status === "incoming" ? <button type="button" className="press" onClick={() => onFlag(piece)}>{tx(lang, "adv.markLate")}</button> : null}
+      {piece.status === "incoming" ? <button type="button" className="press" onClick={() => onReturn(piece)}>{tx(lang, "adv.itsHere")}</button> : null}
+      {(piece.status === "sold" || piece.wasSold) && piece.status !== "kept" && piece.status !== "available" ? <button type="button" className="press" onClick={() => onReturn(piece)}>{tx(lang, "adv.cameBack")}</button> : null}
+      {piece.status === "available" || piece.status === "incoming" ? <button type="button" className="press" onClick={() => setReasonFor(reasonFor === piece.id ? null : piece.id)}>{tx(lang, "common.remove")}</button> : null}
+      {reasonFor === piece.id ? [tx(lang, "adv.reasonGifted"), tx(lang, "adv.reasonDamaged"), tx(lang, "adv.reasonSentBack")].map((reason) => (
         <button key={reason} type="button" className="press" onClick={() => { onRemove(piece, reason); setReasonFor(null); }}>{reason}</button>
       )) : null}
     </div>
@@ -859,16 +877,16 @@ function Figure({ value, unit, caption, tone }: { value: string; unit?: string; 
   );
 }
 
-function Expander({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+function Expander({ open, onToggle, lang = "en" }: { open: boolean; onToggle: () => void; lang?: Lang }) {
   return (
     <button type="button" aria-expanded={open} className="press mt-1.5 inline-flex items-center gap-1 text-sm font-medium text-accent" onClick={onToggle}>
-      {open ? "Show less" : "Read the reasoning"}
+      {open ? tx(lang, "adv.showLess") : tx(lang, "adv.readReasoning")}
       <ChevronDown className={`size-4 transition-transform ${open ? "rotate-180" : ""}`} strokeWidth={1.9} aria-hidden />
     </button>
   );
 }
 
-function InsightCard({ shot, icon: Icon, tone, question, horizon, title, figure, unit, caption, visual, lead, rest, open, onToggle }: GlanceItem & { shot: string; open: boolean; onToggle: () => void }) {
+function InsightCard({ shot, icon: Icon, tone, question, horizon, title, figure, unit, caption, visual, lead, rest, open, onToggle, lang = "en" }: GlanceItem & { shot: string; open: boolean; onToggle: () => void; lang?: Lang }) {
   return (
     <article data-shot={shot} className="insight advice-in relative overflow-hidden rounded-3xl border border-line bg-panel px-4 pt-3.5 pb-4" style={{ ["--tone" as string]: tone }}>
       <span className="tone-edge" aria-hidden />
@@ -899,7 +917,7 @@ function InsightCard({ shot, icon: Icon, tone, question, horizon, title, figure,
         </div>
       ) : null}
       <p className="mt-3 text-sm leading-relaxed text-pretty text-ink">{commas(open && rest ? `${lead} ${rest}` : lead)}</p>
-      {rest ? <Expander open={open} onToggle={onToggle} /> : null}
+      {rest ? <Expander lang={lang} open={open} onToggle={onToggle} /> : null}
     </article>
   );
 }
@@ -925,7 +943,7 @@ function AgeRamp({ buckets }: { buckets: { id: string; label: string; units: num
 }
 
 /** Of what a sale brought in: what went back to cost and what stayed. */
-function KeptSplit({ sale, kept }: { sale: number; kept: number }) {
+function KeptSplit({ sale, kept, lang = "en" }: { sale: number; kept: number; lang?: Lang }) {
   if (sale <= 0) return null;
   const k = Math.max(0, Math.min(sale, kept));
   const green = litTone(GREEN);
@@ -936,8 +954,8 @@ function KeptSplit({ sale, kept }: { sale: number; kept: number }) {
         {k > 0 ? <span className="bar-fill lit-bar block h-full rounded-r-full" style={{ width: `${(k / sale) * 100}%`, background: green, ["--glow" as string]: green, animationDelay: "120ms" }} /> : null}
       </div>
       <div className="mt-1.5 flex justify-between gap-2 text-[11px] whitespace-nowrap tabular-nums text-muted">
-        <span>Cost and ad {money(sale - k)}</span>
-        <span style={{ color: kept < 0 ? "var(--v-danger)" : green }}>Kept {money(kept)}</span>
+        <span>{tx(lang, "adv.costAndAd", { x: money(sale - k) })}</span>
+        <span style={{ color: kept < 0 ? "var(--v-danger)" : green }}>{tx(lang, "adv.keptWord", { x: money(kept) })}</span>
       </div>
     </div>
   );
@@ -973,9 +991,9 @@ function MiniRank({ rows, tone }: { rows: { name: string; n: number }[]; tone: s
 }
 
 /** The twelve months, boot season (September to February) lit, this month ringed. */
-function MonthStrip({ tone }: { tone: string }) {
+function MonthStrip({ tone, lang = "en" }: { tone: string; lang?: Lang }) {
   const now = new Date().getMonth();
-  const names = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+  const names = lang === "es" ? ["E", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"] : ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
   return (
     <div aria-hidden>
       <div className="grid grid-cols-12 gap-0.5">
@@ -989,7 +1007,7 @@ function MonthStrip({ tone }: { tone: string }) {
           );
         })}
       </div>
-      <p className="mt-1.5 text-[11px] whitespace-nowrap text-muted">Boot season: Sep to Feb</p>
+      <p className="mt-1.5 text-[11px] whitespace-nowrap text-muted">{tx(lang, "adv.bootSeason")}</p>
     </div>
   );
 }

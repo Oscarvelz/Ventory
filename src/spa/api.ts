@@ -4,6 +4,7 @@
 import { asPlace, asProblem, asStatus, asWorked, type Ad, type Piece, type PieceInput, type Status } from "@/lib/ventory/model";
 import { convertToUs } from "@/lib/ventory/sizes";
 import { asTheme } from "@/lib/ventory/themes";
+import { asLang, mirrorLang, type Lang } from "@/lib/ventory/i18n";
 import * as store from "./store";
 
 type Mark = { category: string; subcategory: string; photo: string };
@@ -102,7 +103,7 @@ function readAds(): Ad[] {
 }
 function prefs() {
   const p = store.get("pref", "main")?.data ?? {};
-  return { theme: asTheme(p.theme), adsOn: p.adsOn !== false };
+  return { theme: asTheme(p.theme), adsOn: p.adsOn !== false, lang: asLang(p.lang) };
 }
 function readChecks(): Check[] {
   return store.checkpoints().map((c) => ({ id: c.id, label: c.label, createdAt: c.createdAt, count: c.count ?? null }));
@@ -118,7 +119,7 @@ function nextSort() {
 
 export async function loadFloor() {
   const p = prefs();
-  return { pieces: readPieces(), marks: readMarks(), ads: readAds(), theme: p.theme, adsOn: p.adsOn, checkpoints: readChecks() };
+  return { pieces: readPieces(), marks: readMarks(), ads: readAds(), theme: p.theme, adsOn: p.adsOn, lang: p.lang, checkpoints: readChecks() };
 }
 
 export async function saveMark({ data: raw }: { data: { category: string; subcategory: string; photo: string } }) {
@@ -246,6 +247,13 @@ export async function saveAds({ data }: { data: boolean }) {
   const on = data !== false;
   await store.write([{ kind: "pref", id: "main", data: { ...prefs(), adsOn: on } }]);
   return on;
+}
+
+export async function saveLang({ data }: { data: string }) {
+  const lang: Lang = asLang(data);
+  mirrorLang(lang);
+  await store.write([{ kind: "pref", id: "main", data: { ...prefs(), lang } }]);
+  return lang;
 }
 
 export async function importPieces({ data: raw }: { data: PieceInput[] }) {

@@ -1,5 +1,6 @@
 import { priceCutCents, type Piece, type PieceInput } from "./model";
 import type { DetailedRow, LooseLine } from "./paste";
+import { tx, type Lang } from "./i18n";
 
 /**
  * LA BANDEJA (1.0.16) — the batch tray. The parser reads lines; the tray is where a whole
@@ -35,14 +36,14 @@ export function styleKey(name: string) {
     .trim();
 }
 
-const CLASS_LABEL: Record<DetailedRow["kind"], string> = {
-  sale: "Sale",
-  stock: "Stock",
-  gift: "Gift",
-  returned: "Returned",
-  used: "Used",
-  kept: "Kept",
-  "failed-sale": "Failed sale",
+const CLASS_KEY: Record<DetailedRow["kind"], "tray.classSale" | "tray.classStock" | "tray.classGift" | "tray.classReturned" | "tray.classUsed" | "tray.classKept" | "tray.classFailed"> = {
+  sale: "tray.classSale",
+  stock: "tray.classStock",
+  gift: "tray.classGift",
+  returned: "tray.classReturned",
+  used: "tray.classUsed",
+  kept: "tray.classKept",
+  "failed-sale": "tray.classFailed",
 };
 
 export type TrayRow = {
@@ -238,7 +239,7 @@ function findClusters(rows: TrayRow[], existing: Piece[]): DupCluster[] {
   return clusters;
 }
 
-export function buildTray(parsed: { rows: DetailedRow[]; loose: LooseLine[] }, existing: Piece[], rules: BatchRules): TrayBatch {
+export function buildTray(parsed: { rows: DetailedRow[]; loose: LooseLine[] }, existing: Piece[], rules: BatchRules, lang: Lang = "en"): TrayBatch {
   const rows: TrayRow[] = parsed.rows.map((row, index) => {
     const input = applyRules(row, rules);
     const junk = (row.kind === "stock" || row.kind === "used") && input.costCents === 0 && input.askCents === 0 && !input.notes;
@@ -248,7 +249,7 @@ export function buildTray(parsed: { rows: DetailedRow[]; loose: LooseLine[] }, e
       row,
       input,
       light,
-      classLabel: row.kind === "sale" ? (row.soldDated ? "Sale · dated" : "Sale · no date") : CLASS_LABEL[row.kind],
+      classLabel: row.kind === "sale" ? tx(lang, row.soldDated ? "tray.classSaleDated" : "tray.classSaleNoDate") : tx(lang, CLASS_KEY[row.kind]),
       priceCut: priceCutCents(input),
     };
   });
@@ -260,84 +261,84 @@ export function buildTray(parsed: { rows: DetailedRow[]; loose: LooseLine[] }, e
   };
   addGroup({
     id: "returns",
-    label: "Returns — a return is never a sale",
+    label: tx(lang, "tray.gReturns"),
     rowIndexes: indexesWhere((row) => row.kind === "returned"),
     options: [
-      { id: "import-stock", label: "Import as returned stock" },
-      { id: "skip", label: "Skip" },
+      { id: "import-stock", label: tx(lang, "tray.gReturnsImport") },
+      { id: "skip", label: tx(lang, "tray.gSkip") },
     ],
     defaultOption: "import-stock",
   });
   addGroup({
     id: "bad-arithmetic",
-    label: "Cost arithmetic that does not square",
+    label: tx(lang, "tray.gArith"),
     rowIndexes: indexesWhere((row) => row.issues.includes("bad-arithmetic")),
     options: [
-      { id: "keep-written", label: "Keep the final number he wrote" },
-      { id: "skip", label: "Skip these rows" },
+      { id: "keep-written", label: tx(lang, "tray.gArithKeep") },
+      { id: "skip", label: tx(lang, "tray.gSkipRows") },
     ],
     defaultOption: "keep-written",
   });
   addGroup({
     id: "uncertain-rebate",
-    label: "Rebates read with doubt (an off bigger than the cost, an unexplained amount, a credit with no amount)",
+    label: tx(lang, "tray.gRebate"),
     rowIndexes: indexesWhere((row) => row.issues.includes("uncertain-rebate") || row.issues.includes("rebate-no-amount")),
     options: [
-      { id: "keep", label: "Keep the rebate as read" },
-      { id: "zero", label: "Set the rebate to $0" },
+      { id: "keep", label: tx(lang, "tray.gRebateKeep") },
+      { id: "zero", label: tx(lang, "tray.gRebateZero") },
     ],
     defaultOption: "keep",
   });
   addGroup({
     id: "names",
-    label: "Names on lines that are not sales",
+    label: tx(lang, "tray.gNames"),
     rowIndexes: indexesWhere((row) => !!row.person && row.kind !== "sale"),
     options: [
-      { id: "keep-out", label: "Keep them out of the client field (a gift keeps its recipient in the notes)" },
-      { id: "as-client", label: "Save them as client anyway" },
+      { id: "keep-out", label: tx(lang, "tray.gNamesOut") },
+      { id: "as-client", label: tx(lang, "tray.gNamesClient") },
     ],
     defaultOption: "keep-out",
   });
   addGroup({
     id: "coming-sold",
-    label: "Marked Coming and Sold at once",
+    label: tx(lang, "tray.gComingSold"),
     rowIndexes: indexesWhere((row) => row.issues.includes("coming-sold")),
     options: [
-      { id: "as-sold", label: "Count as sold (it came in, then sold)" },
-      { id: "as-incoming", label: "Keep as incoming" },
+      { id: "as-sold", label: tx(lang, "tray.gComingSoldCount") },
+      { id: "as-incoming", label: tx(lang, "tray.gComingKeep") },
     ],
     defaultOption: "as-sold",
   });
   addGroup({
     id: "true-cost",
-    label: "Costs he wrote as unsure — the piece is flagged; ask what it really cost",
+    label: tx(lang, "tray.gTrueCost"),
     rowIndexes: indexesWhere((row) => row.issues.includes("true-cost")),
-    options: [{ id: "ok", label: "Understood" }],
+    options: [{ id: "ok", label: tx(lang, "tray.gUnderstood") }],
     defaultOption: "ok",
   });
   // 1.9.0: the Wave 5 parser flags land as review questions, never silent guesses.
   addGroup({
     id: "bad-date",
-    label: "Dates that do not exist (like Feb 30) — the date was left off the piece; fix it on the piece after import, or skip the row",
+    label: tx(lang, "tray.gBadDate"),
     rowIndexes: indexesWhere((row) => row.issues.includes("bad-date")),
     options: [
-      { id: "keep", label: "Import without that date" },
-      { id: "skip", label: "Skip these rows" },
+      { id: "keep", label: tx(lang, "tray.gBadDateKeep") },
+      { id: "skip", label: tx(lang, "tray.gSkipRows") },
     ],
     defaultOption: "keep",
   });
   addGroup({
     id: "two-pieces",
-    label: "Two pieces written on one line — only the first was read; add the second by hand if it is real",
+    label: tx(lang, "tray.gTwoPieces"),
     rowIndexes: indexesWhere((row) => row.issues.includes("two-pieces")),
-    options: [{ id: "ok", label: "Understood" }],
+    options: [{ id: "ok", label: tx(lang, "tray.gUnderstood") }],
     defaultOption: "ok",
   });
   addGroup({
     id: "no-cost",
-    label: "No cost written — the number after the size was the US size, not a cost; the piece lands with no cost",
+    label: tx(lang, "tray.gNoCost"),
     rowIndexes: indexesWhere((row) => row.issues.includes("no-cost")),
-    options: [{ id: "ok", label: "Understood" }],
+    options: [{ id: "ok", label: tx(lang, "tray.gUnderstood") }],
     defaultOption: "ok",
   });
   const personalIndexes = indexesWhere((row) => !!row.personalNote);
@@ -345,11 +346,11 @@ export function buildTray(parsed: { rows: DetailedRow[]; loose: LooseLine[] }, e
   if (personalIndexes.length || loosePersonal.length) {
     groups.push({
       id: "personal-notes",
-      label: "Personal notes riding on the batch — they belong to the batch, never to a piece, and never touch a number",
+      label: tx(lang, "tray.gNotes"),
       rowIndexes: personalIndexes,
       options: [
-        { id: "keep-note", label: "Keep as a batch note" },
-        { id: "discard", label: "Discard" },
+        { id: "keep-note", label: tx(lang, "tray.gNotesKeep") },
+        { id: "discard", label: tx(lang, "tray.gNotesDiscard") },
       ],
       defaultOption: "keep-note",
     });

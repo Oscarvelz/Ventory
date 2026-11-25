@@ -11,6 +11,8 @@
  *   the fleet's pattern from Faro and Brizna): Settings turns it on per account, the gate in spa/main.tsx asks.
  */
 
+import { mirroredLang, tx } from "@/lib/ventory/i18n";
+
 export type VentoryNativeBridge = {
   version(): string;
   setBars(top: string, bottom: string, darkTop: boolean, darkBottom: boolean): void;
@@ -57,7 +59,7 @@ export function nativeAuth(): Promise<boolean> {
     };
     window.addEventListener("ventorynative-auth", on);
     try {
-      n.authenticate(id, "Unlock Ventory", "Use your fingerprint or your screen lock");
+      n.authenticate(id, tx(mirroredLang(), "door.unlockTitle"), tx(mirroredLang(), "door.unlockSub"));
     } catch {
       window.removeEventListener("ventorynative-auth", on);
       resolve(false);
@@ -77,7 +79,7 @@ function installBack(n: VentoryNativeBridge) {
       return "ok";
     }
     try {
-      n.atRoot("Press back again to close Ventory");
+      n.atRoot(tx(mirroredLang(), "door.pressBack"));
     } catch {
       /* ignore */
     }
@@ -184,7 +186,7 @@ async function saveBlob(n: VentoryNativeBridge, name: string, blob: Blob) {
   for (let i = 0; i < bytes.length; i += CH) {
     if (n.saveChunk(id, b64(bytes.subarray(i, i + CH))) !== "ok") return;
   }
-  n.saveEnd(id, "Saved in Downloads › Ventory: %s");
+  n.saveEnd(id, tx(mirroredLang(), "door.savedIn"));
 }
 
 function installDownloads(n: VentoryNativeBridge) {

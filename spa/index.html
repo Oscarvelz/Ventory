@@ -101,7 +101,11 @@
           if (gone || window.__ventoryShellReady) return;
           var s = document.getElementById("ventory-splash");
           if (!s) return;
-          s.innerHTML = '<div class="vsp-lockup"><p style="font-family:Georgia,serif;font-size:1.6rem;line-height:1.2">Ventory couldn&rsquo;t load</p><p style="font-size:0.95rem;opacity:0.75;max-width:19rem;line-height:1.45">The app itself didn&rsquo;t arrive. Check your connection and try again.</p><button type="button" onclick="location.reload()" style="margin-top:0.5rem;height:2.75rem;padding:0 1.4rem;border-radius:999px;border:1px solid currentColor;background:transparent;color:inherit;font-size:0.95rem">Retry</button></div>';
+          var es = false;
+          try { es = window.localStorage.getItem("ventory.lang") === '"es"' || window.localStorage.getItem("ventory.lang") === "es"; } catch (e) { /* storage unavailable: English */ }
+          s.innerHTML = es
+            ? '<div class="vsp-lockup"><p style="font-family:Georgia,serif;font-size:1.6rem;line-height:1.2">Ventory no pudo cargar</p><p style="font-size:0.95rem;opacity:0.75;max-width:19rem;line-height:1.45">La aplicación misma no llegó. Revisa tu conexión e inténtalo de nuevo.</p><button type="button" onclick="location.reload()" style="margin-top:0.5rem;height:2.75rem;padding:0 1.4rem;border-radius:999px;border:1px solid currentColor;background:transparent;color:inherit;font-size:0.95rem">Reintentar</button></div>'
+            : '<div class="vsp-lockup"><p style="font-family:Georgia,serif;font-size:1.6rem;line-height:1.2">Ventory couldn&rsquo;t load</p><p style="font-size:0.95rem;opacity:0.75;max-width:19rem;line-height:1.45">The app itself didn&rsquo;t arrive. Check your connection and try again.</p><button type="button" onclick="location.reload()" style="margin-top:0.5rem;height:2.75rem;padding:0 1.4rem;border-radius:999px;border:1px solid currentColor;background:transparent;color:inherit;font-size:0.95rem">Retry</button></div>';
         }, 10000);
       })();
     </script>

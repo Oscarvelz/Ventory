@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { axisCash, cash, niceStep, pct, series, TONES, type AgeBucket, type Grain, type Period } from "@/lib/ventory/metrics";
 import type { Piece } from "@/lib/ventory/model";
 import { tone as litTone } from "@/lib/ventory/tones";
+import { tx, type Lang } from "@/lib/ventory/i18n";
 
 /* Ventory's charts (1.1.0). Drawn in the house language: no frames inside
    frames (a chart sits straight on its fold), theme variables for every
@@ -119,15 +120,14 @@ export function Spark({ values, tone = TONES.green, height = 44 }: { values: num
 
 /* ---------------------------------------------------------------- trend */
 
-const GRAINS: { id: Grain; label: string }[] = [
-  { id: "week", label: "Week" },
-  { id: "month", label: "Month" },
-  { id: "year", label: "Year" },
-];
-
-export function Trend({ sales }: { sales: Piece[] }) {
+export function Trend({ sales, lang = "en" }: { sales: Piece[]; lang?: Lang }) {
   const [grain, setGrain] = useState<Grain>("month");
-  const rows = useMemo(() => series(sales, grain, { limit: grain === "year" ? undefined : 12 }), [sales, grain]);
+  const rows = useMemo(() => series(sales, grain, { limit: grain === "year" ? undefined : 12, lang }), [sales, grain, lang]);
+  const GRAINS: { id: Grain; label: string }[] = [
+    { id: "week", label: tx(lang, "stats.grainWeek") },
+    { id: "month", label: tx(lang, "stats.grainMonth") },
+    { id: "year", label: tx(lang, "stats.grainYear") },
+  ];
   const [pick, setPick] = useState<string | null>(null);
   const [ref, width] = useWidth<HTMLDivElement>();
   const selected = rows.find((row) => row.key === pick) ?? rows.at(-1) ?? null;
@@ -157,16 +157,16 @@ export function Trend({ sales }: { sales: Piece[] }) {
     <div>
       <div className="flex items-center justify-between gap-3">
         <div className="flex gap-4 text-[11px] text-muted">
-          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-sm" style={{ background: amber }} />In</span>
-          <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-3 rounded-full" style={{ background: green }} />Left after cost</span>
+          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-sm" style={{ background: amber }} />{tx(lang, "board.in")}</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-3 rounded-full" style={{ background: green }} />{tx(lang, "board.leftAfterCost")}</span>
         </div>
-        <Segmented value={grain} options={GRAINS} onChange={(id) => { setGrain(id); setPick(null); }} label="Group sales by" />
+        <Segmented value={grain} options={GRAINS} onChange={(id) => { setGrain(id); setPick(null); }} label={tx(lang, "charts.groupBy")} />
       </div>
-      {rows.length === 0 ? <p className="mt-4 text-sm text-muted">No dated sales yet. A sale needs its date to land on the timeline.</p> : (
+      {rows.length === 0 ? <p className="mt-4 text-sm text-muted">{tx(lang, "charts.trendEmpty")}</p> : (
         <>
           <div ref={ref} className="mt-3 w-full" style={{ height: H }}>
             {width > 0 ? (
-              <svg key={grain} width={width} height={H} className="block touch-manipulation select-none" role="img" aria-label={`Sales by ${grain}`}>
+              <svg key={grain} width={width} height={H} className="block touch-manipulation select-none" role="img" aria-label={tx(lang, "charts.salesBy", { grain: tx(lang, grain === "week" ? "stats.grainWeek" : grain === "month" ? "stats.grainMonth" : "stats.grainYear") })}>
                 {ticks.map((v) => (
                   <g key={v}>
                     <line x1={left} x2={width} y1={y(v)} y2={y(v)} stroke="var(--v-line)" strokeWidth={v === 0 ? 1 : 0.75} strokeDasharray={v === 0 ? undefined : "3 4"} />
@@ -194,22 +194,22 @@ export function Trend({ sales }: { sales: Piece[] }) {
               </svg>
             ) : null}
           </div>
-          {selected ? <PeriodLine row={selected} /> : null}
+          {selected ? <PeriodLine row={selected} lang={lang} /> : null}
         </>
       )}
     </div>
   );
 }
 
-function PeriodLine({ row }: { row: Period }) {
+function PeriodLine({ row, lang = "en" }: { row: Period; lang?: Lang }) {
   const margin = row.margin;
   return (
     <div key={row.key} className="row-in mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-line pt-2.5 text-sm">
       <span className="font-medium text-ink">{row.label}</span>
-      <span className="tabular-nums text-muted"><span className="text-ink">{cash(row.revenue)}</span> in</span>
-      <span className="tabular-nums text-muted"><span className={row.profit < 0 ? "text-danger" : "text-ink"}>{cash(row.profit)}</span> left</span>
-      <span className="tabular-nums text-muted"><span className="text-ink">{row.units}</span> {row.units === 1 ? "sale" : "sales"}</span>
-      {margin != null ? <span className="tabular-nums text-muted"><span className="text-ink">{pct(margin)}</span> margin</span> : null}
+      <span className="tabular-nums text-muted"><span className="text-ink">{cash(row.revenue)}</span>{tx(lang, "charts.inSuffix")}</span>
+      <span className="tabular-nums text-muted"><span className={row.profit < 0 ? "text-danger" : "text-ink"}>{cash(row.profit)}</span>{tx(lang, "charts.leftSuffix")}</span>
+      <span className="tabular-nums text-muted"><span className="text-ink">{row.units}</span> {tx(lang, row.units === 1 ? "common.saleWordOne" : "common.saleWordOther")}</span>
+      {margin != null ? <span className="tabular-nums text-muted"><span className="text-ink">{pct(margin)}</span>{tx(lang, "stats.marginTail")}</span> : null}
     </div>
   );
 }
@@ -226,11 +226,11 @@ export type BarRow = { label: string; value: number; text: string; sub?: string;
    glow in their own tone under Tron (.lit-bar). */
 const SHORT_LABEL = 12;
 
-export function Bars({ rows, tone = TONES.green, limit = 6, empty, onMore }: { rows: BarRow[]; tone?: string; limit?: number; empty?: string; onMore?: boolean }) {
+export function Bars({ rows, tone = TONES.green, limit = 6, empty, onMore, lang = "en" }: { rows: BarRow[]; tone?: string; limit?: number; empty?: string; onMore?: boolean; lang?: Lang }) {
   const [all, setAll] = useState(false);
   const shown = all ? rows : rows.slice(0, limit);
   const peak = Math.max(1, ...rows.map((row) => Math.abs(row.value)));
-  if (!rows.length) return <p className="text-sm text-muted">{empty ?? "Nothing to measure yet."}</p>;
+  if (!rows.length) return <p className="text-sm text-muted">{empty ?? tx(lang, "stats.nothingMeasure")}</p>;
   const inline = rows.every((row) => row.label.length <= SHORT_LABEL && `${row.text} · ${row.sub ?? ""}`.length <= 24);
   const width = (row: BarRow) => `${Math.max(row.value === 0 ? 0 : 3, Math.round((Math.abs(row.value) / peak) * 100))}%`;
   const fill = (row: BarRow) => (row.negative ? "var(--v-danger)" : litTone(row.tone ?? tone));
@@ -272,7 +272,7 @@ export function Bars({ rows, tone = TONES.green, limit = 6, empty, onMore }: { r
       )}
       {(onMore ?? true) && rows.length > limit ? (
         <button type="button" className="press mt-3 text-sm text-accent" onClick={() => setAll((v) => !v)}>
-          {all ? "Show fewer" : `Show all ${rows.length}`}
+          {all ? tx(lang, "charts.showFewer") : tx(lang, "charts.showAll", { n: rows.length })}
         </button>
       ) : null}
     </div>
@@ -284,18 +284,18 @@ export function Bars({ rows, tone = TONES.green, limit = 6, empty, onMore }: { r
 export type PairRow = { label: string; a: number; b: number; extra?: string };
 
 /** What left against what is still here, per row, on one line: name · a two-part bar · "2 sold · 1 left". One shared scale, so a longer bar is more pieces in all. */
-export function PairBars({ rows, aLabel, bLabel, extraLabel, aTone = TONES.blue, limit = 6, empty, aWord = "sold", bWord = "left" }: { rows: PairRow[]; aLabel: string; bLabel: string; extraLabel?: string; aTone?: string; limit?: number; empty?: string; aWord?: string; bWord?: string }) {
+export function PairBars({ rows, aLabel, bLabel, extraLabel, aTone = TONES.blue, limit = 6, empty, aWord, bWord, lang = "en" }: { rows: PairRow[]; aLabel: string; bLabel: string; extraLabel?: string; aTone?: string; limit?: number; empty?: string; aWord?: string; bWord?: string; lang?: Lang }) {
   const [all, setAll] = useState(false);
   const shown = all ? rows : rows.slice(0, limit);
   const peak = Math.max(1, ...rows.map((row) => row.a + row.b));
   const color = litTone(aTone);
   const rest = `color-mix(in srgb, ${color} 30%, var(--v-panel-2))`;
-  if (!rows.length) return <p className="text-sm text-muted">{empty ?? "Nothing to measure yet."}</p>;
+  if (!rows.length) return <p className="text-sm text-muted">{empty ?? tx(lang, "stats.nothingMeasure")}</p>;
   const inline = rows.every((row) => row.label.length <= SHORT_LABEL);
   const figure = (row: PairRow) => (
     <span className="text-right text-sm whitespace-nowrap tabular-nums">
-      <span className="text-ink">{row.a} {aWord}</span>
-      <span className="text-muted"> · {row.b} {bWord}</span>
+      <span className="text-ink">{row.a} {aWord ?? tx(lang, row.a === 1 ? "charts.pairSoldOne" : "charts.pairSoldOther")}</span>
+      <span className="text-muted"> · {row.b} {bWord ?? tx(lang, row.b === 1 ? "charts.pairLeftOne" : "charts.pairLeftOther")}</span>
       {row.extra ? <span className="text-faint"> · {row.extra}</span> : null}
     </span>
   );
@@ -339,7 +339,7 @@ export function PairBars({ rows, aLabel, bLabel, extraLabel, aTone = TONES.blue,
       )}
       {rows.length > limit ? (
         <button type="button" className="press mt-3 text-sm text-accent" onClick={() => setAll((v) => !v)}>
-          {all ? "Show fewer" : `Show all ${rows.length}`}
+          {all ? tx(lang, "charts.showFewer") : tx(lang, "charts.showAll", { n: rows.length })}
         </button>
       ) : null}
     </div>
@@ -444,7 +444,7 @@ export function Split({ parts, height = 10 }: { parts: { label: string; value: n
 
 /* ---------------------------------------------------------------- delta */
 
-export function Delta({ label, now, before, format }: { label: string; now: number; before: number | null; format: (n: number) => string }) {
+export function Delta({ label, now, before, format, lang = "en" }: { label: string; now: number; before: number | null; format: (n: number) => string; lang?: Lang }) {
   const change = before == null || before === 0 ? null : (now - before) / Math.abs(before);
   const up = change != null && change > 0.005;
   const down = change != null && change < -0.005;
@@ -457,7 +457,7 @@ export function Delta({ label, now, before, format }: { label: string; now: numb
         <span className="min-w-0 text-sm text-muted">{label}</span>
         <span className="flex shrink-0 items-center gap-2.5 tabular-nums">
           <span className="text-lg leading-none font-medium text-ink">{format(now)}</span>
-          <span className="min-w-14 rounded-full px-2 py-0.5 text-center text-xs font-medium whitespace-nowrap" style={{ color, background: change == null ? "var(--v-panel-2)" : `color-mix(in srgb, ${color} 16%, transparent)` }}>{change == null ? "new" : `${up ? "▲" : down ? "▼" : "•"} ${Math.abs(Math.round(change * 100))}%`}</span>
+          <span className="min-w-14 rounded-full px-2 py-0.5 text-center text-xs font-medium whitespace-nowrap" style={{ color, background: change == null ? "var(--v-panel-2)" : `color-mix(in srgb, ${color} 16%, transparent)` }}>{change == null ? tx(lang, "charts.new") : `${up ? "▲" : down ? "▼" : "•"} ${Math.abs(Math.round(change * 100))}%`}</span>
         </span>
       </div>
       <div className="mt-1.5 flex items-center gap-3" aria-hidden>
@@ -465,7 +465,7 @@ export function Delta({ label, now, before, format }: { label: string; now: numb
           <span className="h-1.5 overflow-hidden rounded-full bg-panel-2"><span className="bar-fill lit-bar block h-full rounded-full" style={{ width: `${Math.max(now > 0 ? 3 : 0, (Math.max(0, now) / peak) * 100)}%`, background: lit, ["--glow" as string]: lit }} /></span>
           <span className="h-1 overflow-hidden rounded-full bg-panel-2"><span className="bar-fill block h-full rounded-full" style={{ width: `${Math.max(before ? 3 : 0, (Math.max(0, before ?? 0) / peak) * 100)}%`, background: "color-mix(in srgb, var(--v-muted) 50%, var(--v-panel-2))", animationDelay: "90ms" }} /></span>
         </span>
-        <span className="w-20 shrink-0 text-right text-[11px] whitespace-nowrap tabular-nums text-faint">{before == null ? "no earlier" : `was ${format(before)}`}</span>
+        <span className="w-20 shrink-0 text-right text-[11px] whitespace-nowrap tabular-nums text-faint">{before == null ? tx(lang, "charts.noEarlier") : tx(lang, "charts.was", { x: format(before) })}</span>
       </div>
     </div>
   );

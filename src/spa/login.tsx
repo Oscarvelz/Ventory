@@ -4,16 +4,17 @@ import { useState, type FormEvent } from "react";
 import { Eye, EyeOff, Fingerprint } from "lucide-react";
 import { Wordmark } from "@/components/ventory/mark";
 import { emitUser, keepSignedIn, rememberUser, setKeepSignedIn, supabase } from "./cloud";
+import { mirroredLang, tx } from "@/lib/ventory/i18n";
 
 export function Landing({ note, recovery }: { note?: string; recovery?: boolean }) {
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-10 lg:max-w-none lg:px-10">
-      <p className="text-xs font-medium tracking-wide text-muted uppercase">Floor book</p>
+      <p className="text-xs font-medium tracking-wide text-muted uppercase">{tx(mirroredLang(), "door.floorBook")}</p>
       <h1 className="mt-8">
         <Wordmark className="text-5xl" />
       </h1>
       <p className="mt-4 max-w-xl text-lg text-muted">
-        Every boot, watch, and listing. Where it came from, what size it is, who bought it, and how long it sat with you.
+        {tx(mirroredLang(), "door.tagline")}
       </p>
       <AccountForm note={note} recovery={recovery} />
     </main>
@@ -28,19 +29,22 @@ export function Landing({ note, recovery }: { note?: string; recovery?: boolean 
  * the contract.)
  */
 function friendly(err: unknown, mode: string) {
+  const lang = mirroredLang();
   const e = (err ?? {}) as { message?: string; code?: string; status?: number };
   const message = typeof e.message === "string" ? e.message : "";
   const code = typeof e.code === "string" ? e.code : "";
-  if (code === "invalid_credentials" || /invalid login credentials/i.test(message)) return "Those details did not match.";
-  if (code === "email_not_confirmed" || /email not confirmed/i.test(message)) return "That account is not confirmed yet. Open the confirmation email, tap its link, then sign in.";
-  if (code === "over_request_rate_limit" || /rate.?limit|too many/i.test(code) || /rate.?limit|too many (requests|attempts)/i.test(message)) return "Too many tries in a row. Wait a minute, then try again.";
-  if (/fetch|network|load failed/i.test(message)) return navigator.onLine ? "Could not reach Ventory. Try again in a moment." : "You're offline. Connect to sign in the first time.";
-  if ((typeof e.status === "number" && e.status >= 500) || /internal server|unexpected|service unavailable/i.test(message)) return "Ventory's sign-in service had a hiccup. Try again in a moment.";
-  if (/already registered/i.test(message)) return "That email already has an account. Sign in instead.";
-  return message || (mode === "up" ? "Could not create the account." : "Could not sign in.");
+  if (code === "invalid_credentials" || /invalid login credentials/i.test(message)) return tx(lang, "door.errNoMatch");
+  if (code === "email_not_confirmed" || /email not confirmed/i.test(message)) return tx(lang, "door.errNotConfirmed");
+  if (code === "over_request_rate_limit" || /rate.?limit|too many/i.test(code) || /rate.?limit|too many (requests|attempts)/i.test(message)) return tx(lang, "door.errRate");
+  if (/fetch|network|load failed/i.test(message)) return navigator.onLine ? tx(lang, "door.errReach") : tx(lang, "door.errOffline");
+  if ((typeof e.status === "number" && e.status >= 500) || /internal server|unexpected|service unavailable/i.test(message)) return tx(lang, "door.errHiccup");
+  if (/already registered/i.test(message)) return tx(lang, "door.errAlready");
+  return message || (mode === "up" ? tx(lang, "door.errCreate") : tx(lang, "door.errSignIn"));
 }
 
 function AccountForm({ note, recovery }: { note?: string; recovery?: boolean }) {
+  const lang = mirroredLang();
+  const t = (key: Parameters<typeof tx>[1], vars?: Record<string, string | number>) => tx(lang, key, vars);
   const [mode, setMode] = useState<"in" | "up" | "forgot" | "reset">(recovery ? "reset" : "in");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -62,7 +66,7 @@ function AccountForm({ note, recovery }: { note?: string; recovery?: boolean }) 
       if (mode === "forgot") {
         const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: here });
         if (err) throw err;
-        setInfo("Check your email for a link to make a new password.");
+        setInfo(t("door.checkEmailReset"));
         setMode("in");
         return;
       }
@@ -79,11 +83,11 @@ function AccountForm({ note, recovery }: { note?: string; recovery?: boolean }) 
         const { data, error: err } = await supabase.auth.signUp({
           email: email.trim(),
           password,
-          options: { data: { name: name.trim() || email.split("@")[0] || "Seller" }, emailRedirectTo: here },
+          options: { data: { name: name.trim() || email.split("@")[0] || t("door.seller") }, emailRedirectTo: here },
         });
         if (err) throw err;
         if (!data.session) {
-          setInfo("Check your email to confirm the account, then sign in.");
+          setInfo(t("door.checkEmailConfirm"));
           setMode("in");
           return;
         }
@@ -104,24 +108,24 @@ function AccountForm({ note, recovery }: { note?: string; recovery?: boolean }) 
   return (
     <div className="mx-auto mt-8 w-full max-w-sm">
       {mode === "forgot" || mode === "reset" ? (
-        <p className="mb-3 text-sm text-muted">{mode === "forgot" ? "Enter your email and we'll send a link to make a new password." : "Choose a new password."}</p>
+        <p className="mb-3 text-sm text-muted">{mode === "forgot" ? t("door.forgotIntro") : t("door.resetIntro")}</p>
       ) : null}
       <form className="space-y-3" onSubmit={(event) => void submit(event)}>
         {mode === "up" ? (
           <label className="block text-sm">
-            <span className="text-muted">Name</span>
+            <span className="text-muted">{t("door.name")}</span>
             <input value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" className="mt-1 h-12 w-full rounded-md border border-line bg-panel px-3" />
           </label>
         ) : null}
         {mode !== "reset" ? (
           <label className="block text-sm">
-            <span className="text-muted">Email</span>
+            <span className="text-muted">{t("door.email")}</span>
             <input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} inputMode="email" className="mt-1 h-12 w-full rounded-md border border-line bg-panel px-3" />
           </label>
         ) : null}
         {needsPassword ? (
           <label className="block text-sm">
-            <span className="text-muted">{mode === "reset" ? "New password" : "Password"}</span>
+            <span className="text-muted">{mode === "reset" ? t("door.newPassword") : t("door.password")}</span>
             <span className="relative mt-1 block">
               <input
                 required
@@ -136,7 +140,7 @@ function AccountForm({ note, recovery }: { note?: string; recovery?: boolean }) 
               />
               <button
                 type="button"
-                aria-label={show ? "Hide password" : "Show password"}
+                aria-label={show ? t("door.hidePw") : t("door.showPw")}
                 aria-pressed={show}
                 onClick={() => setShow((value) => !value)}
                 className="absolute top-1/2 right-2 grid size-9 -translate-y-1/2 place-items-center text-muted"
@@ -149,13 +153,13 @@ function AccountForm({ note, recovery }: { note?: string; recovery?: boolean }) 
         {mode === "in" || mode === "up" ? (
           <label className="flex items-center gap-2 text-sm text-ink">
             <input type="checkbox" checked={keep} onChange={(event) => setKeep(event.target.checked)} />
-            Keep me signed in
+            {t("door.keepIn")}
           </label>
         ) : null}
         {info ? <p className="text-sm text-muted">{info}</p> : null}
         {error ? <p className="text-sm text-danger">{error}</p> : null}
         <button type="submit" disabled={busy} className="h-12 w-full rounded-md bg-accent text-sm font-medium text-accent-ink disabled:opacity-50">
-          {busy ? "Working" : mode === "up" ? "Create account" : mode === "forgot" ? "Send link" : mode === "reset" ? "Save password" : "Sign in"}
+          {busy ? t("door.working") : mode === "up" ? t("door.createAccount") : mode === "forgot" ? t("door.sendLink") : mode === "reset" ? t("door.savePassword") : t("door.signIn")}
         </button>
       </form>
       {mode === "in" || mode === "up" ? (
@@ -168,7 +172,7 @@ function AccountForm({ note, recovery }: { note?: string; recovery?: boolean }) 
             setInfo("");
           }}
         >
-          {mode === "up" ? "Already have an account? Sign in" : "New here? Create an account"}
+          {mode === "up" ? t("door.haveAccount") : t("door.newHere")}
         </button>
       ) : null}
       {mode === "in" || mode === "forgot" ? (
@@ -181,7 +185,7 @@ function AccountForm({ note, recovery }: { note?: string; recovery?: boolean }) 
             setInfo("");
           }}
         >
-          {mode === "in" ? "Forgot your password?" : "Back to sign in"}
+          {mode === "in" ? t("door.forgotPw") : t("door.backToSignIn")}
         </button>
       ) : null}
     </div>
@@ -195,13 +199,14 @@ function AccountForm({ note, recovery }: { note?: string; recovery?: boolean }) 
  * device and the lock stays on for the account, exactly like Faro.
  */
 export function Locked({ failed, onOpen, onSignOut }: { failed: boolean; onOpen: () => void; onSignOut: () => void }) {
+  const lang = mirroredLang();
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-5 py-10 lg:max-w-none lg:px-10">
-      <p className="text-xs font-medium tracking-wide text-muted uppercase">Floor book</p>
+      <p className="text-xs font-medium tracking-wide text-muted uppercase">{tx(lang, "door.floorBook")}</p>
       <h1 className="mt-8">
         <Wordmark className="text-5xl" />
       </h1>
-      <p className="mt-4 max-w-xl text-lg text-muted">Ventory is locked.</p>
+      <p className="mt-4 max-w-xl text-lg text-muted">{tx(lang, "door.locked")}</p>
       <div className="mx-auto mt-8 w-full max-w-sm">
         <button
           type="button"
@@ -209,11 +214,11 @@ export function Locked({ failed, onOpen, onSignOut }: { failed: boolean; onOpen:
           className="flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-accent text-sm font-medium text-accent-ink"
         >
           <Fingerprint className="size-5" aria-hidden />
-          {failed ? "Try again" : "Unlock with fingerprint"}
+          {failed ? tx(lang, "door.tryAgain") : tx(lang, "door.unlockFp")}
         </button>
-        {failed ? <p className="mt-3 text-sm text-danger">That didn't open it. Try again, or use your password.</p> : null}
+        {failed ? <p className="mt-3 text-sm text-danger">{tx(lang, "door.lockFailed")}</p> : null}
         <button type="button" onClick={onSignOut} className="mt-4 cursor-pointer text-sm text-muted underline-offset-4 hover:underline">
-          Sign out and use your password instead
+          {tx(lang, "door.signOutPw")}
         </button>
       </div>
     </main>

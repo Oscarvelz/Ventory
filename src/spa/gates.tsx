@@ -7,6 +7,7 @@ import { LogOut } from "lucide-react";
 import { askSignInAgain, lastUser, onUser, sessionGone, signOutEverywhereLocal, type VentoryUser } from "./cloud";
 import { disableLock, enableLock, lockCredential, lockSupported } from "./lock";
 import { forgetDevice, lastSynced, lastSyncError, pendingCount, syncIncomplete, syncNow } from "./store";
+import { mirroredLang, tx, type Lang } from "@/lib/ventory/i18n";
 
 export function useVentoryUser(): VentoryUser | null {
   const [u, setU] = useState<VentoryUser | null>(() => lastUser());
@@ -14,11 +15,12 @@ export function useVentoryUser(): VentoryUser | null {
   return u;
 }
 
-function clock(iso: string) {
+function clock(iso: string, lang: Lang) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   const today = new Date().toDateString() === d.toDateString();
-  return today ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : d.toLocaleDateString([], { month: "short", day: "numeric" });
+  const locale = lang === "es" ? "es" : "en-US";
+  return today ? d.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" }) : d.toLocaleDateString(locale, { month: "short", day: "numeric" });
 }
 
 function useSyncLine() {
@@ -30,14 +32,15 @@ function useSyncLine() {
       for (const ev of ["ventory-sync", "ventory-session", "online", "offline"]) window.removeEventListener(ev, on);
     };
   }, []);
+  const lang = mirroredLang();
   const waiting = pendingCount();
-  if (sessionGone()) return "Sync is paused: your session ended. Everything stays on this device.";
-  if (!navigator.onLine) return waiting ? `Offline. ${waiting} ${waiting === 1 ? "change waits" : "changes wait"} on this device.` : "Offline. Everything is on this device.";
-  if (lastSyncError()) return waiting ? `${waiting} ${waiting === 1 ? "change waits" : "changes wait"} to sync.` : "Could not sync just now.";
-  if (waiting && syncIncomplete()) return `${waiting} ${waiting === 1 ? "change" : "changes"} couldn't sync yet. They'll keep trying.`;
-  if (waiting) return "Syncing";
+  if (sessionGone()) return tx(lang, "door.syncPaused");
+  if (!navigator.onLine) return waiting ? tx(lang, waiting === 1 ? "door.syncOfflineOne" : "door.syncOfflineOther", { n: waiting }) : tx(lang, "door.syncOfflinePlain");
+  if (lastSyncError()) return waiting ? tx(lang, waiting === 1 ? "door.syncWaitOne" : "door.syncWaitOther", { n: waiting }) : tx(lang, "door.syncCouldNot");
+  if (waiting && syncIncomplete()) return tx(lang, waiting === 1 ? "door.syncIncOne" : "door.syncIncOther", { n: waiting });
+  if (waiting) return tx(lang, "door.syncing");
   const at = lastSynced();
-  return at ? `Synced ${clock(at)}` : "Syncing";
+  return at ? tx(lang, "door.syncedAt", { time: clock(at, lang) }) : tx(lang, "door.syncing");
 }
 
 /** The account card: who is signed in on this device, and whether the floor is synced. */
@@ -51,7 +54,7 @@ export function AccountCard() {
     return () => window.removeEventListener("ventory-session", on);
   }, []);
   if (!user) return null;
-  const label = user.name || user.email || "Account";
+  const label = user.name || user.email || tx(mirroredLang(), "door.accountFallback");
   return (
     <section className="rounded-2xl border border-line bg-panel px-4 py-3.5">
       <div className="flex items-center gap-3">
@@ -64,7 +67,7 @@ export function AccountCard() {
       <p className="mt-2.5 text-xs text-muted">{line}</p>
       {gone ? (
         <button type="button" className="press mt-2.5 h-11 rounded-full border border-line px-4 text-sm" onClick={askSignInAgain}>
-          Sign in again
+          {tx(mirroredLang(), "door.signInAgain")}
         </button>
       ) : null}
     </section>
@@ -83,14 +86,14 @@ export function FingerprintControl() {
     if (user) setLocked(Boolean(lockCredential(user.id)));
   }, [user]);
   // Never an empty fold: without an account, say what the fold is waiting for (button audit V-7).
-  if (!user) return <p className="text-sm leading-relaxed text-muted">Sign in to use fingerprint unlock on this device.</p>;
+  if (!user) return <p className="text-sm leading-relaxed text-muted">{tx(mirroredLang(), "door.fpSignInFirst")}</p>;
   return (
     <div className="grid gap-1">
-      <span className="text-sm font-medium">Fingerprint unlock</span>
+      <span className="text-sm font-medium">{tx(mirroredLang(), "door.fpTitle")}</span>
       <span className="text-xs leading-relaxed text-muted">
         {canLock
-          ? "Asks for your fingerprint or face when Ventory opens on this device. Coming back within a few minutes while you work won't ask again. Works offline; nothing leaves the phone."
-          : "This device has no fingerprint or screen lock available."}
+          ? tx(mirroredLang(), "door.fpDesc")
+          : tx(mirroredLang(), "door.fpNone")}
       </span>
       {canLock ? (
         <button
@@ -106,11 +109,11 @@ export function FingerprintControl() {
             try {
               setLocked(await enableLock(user.id, user.email));
             } catch {
-              setLockMsg("Could not turn it on.");
+              setLockMsg(tx(mirroredLang(), "door.fpFail"));
             }
           }}
         >
-          {locked ? "Turn off fingerprint unlock" : "Turn on fingerprint unlock"}
+          {locked ? tx(mirroredLang(), "door.fpOff") : tx(mirroredLang(), "door.fpOn")}
         </button>
       ) : null}
       {lockMsg ? <span className="text-xs text-danger">{lockMsg}</span> : null}
@@ -133,7 +136,7 @@ export function SignOutCard() {
       if (pendingCount() && navigator.onLine && !sessionGone()) await syncNow();
       const left = pendingCount();
       if (left && !warn) {
-        setWarn(`${left} ${left === 1 ? "change has" : "changes have"} not synced yet. Connect to the internet first, or tap Sign out again to discard ${left === 1 ? "it" : "them"}.`);
+        setWarn(tx(mirroredLang(), left === 1 ? "door.warnOne" : "door.warnOther", { n: left }));
         setSigningOut(false);
         return;
       }
@@ -150,7 +153,7 @@ export function SignOutCard() {
         <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-danger-soft text-danger">
           <LogOut className="size-[18px]" strokeWidth={1.75} />
         </span>
-        <span className="text-sm font-medium text-danger">{signingOut ? "Signing out…" : "Sign out"}</span>
+        <span className="text-sm font-medium text-danger">{signingOut ? tx(mirroredLang(), "door.signingOut") : tx(mirroredLang(), "door.signOut")}</span>
       </button>
       {warn ? <p className="px-4 pb-3.5 text-xs text-danger">{warn}</p> : null}
     </section>

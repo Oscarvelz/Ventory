@@ -1,4 +1,5 @@
 import { daysHeld, effectiveCostCents, priceCutCents, profitOf, todayISO, type Ad, type Piece } from "./model";
+import { tx, type Lang } from "./i18n";
 
 /* One reading of the floor (1.1.0), shared by Statistics, the Advisor's
    visuals, the PDF report and the worksheet, so every surface tells the same
@@ -212,16 +213,17 @@ export function ageTone(days: number) {
 }
 
 const SELL_DAYS = [
-  { label: "1 week", max: 7 },
-  { label: "2–4 wk", max: 30 },
-  { label: "1–2 mo", max: 60 },
-  { label: "2–3 mo", max: 90 },
-  { label: "3–6 mo", max: 180 },
-  { label: "6 mo +", max: Infinity },
-];
+  { key: "stats.sellWeek1", max: 7 },
+  { key: "stats.sellWk", max: 30 },
+  { key: "stats.sellMo12", max: 60 },
+  { key: "stats.sellMo23", max: 90 },
+  { key: "stats.sellMo36", max: 180 },
+  { key: "stats.sellMo6", max: Infinity },
+] as const;
 
 /** Reads the whole floor. `from`/`to` (ISO, inclusive) narrow the SALES to a window; stock is always today's. */
-export function measure(pieces: Piece[], ads: Ad[] = [], opts: { from?: string | null; to?: string | null; today?: string } = {}): Metrics {
+export function measure(pieces: Piece[], ads: Ad[] = [], opts: { from?: string | null; to?: string | null; today?: string; lang?: Lang } = {}): Metrics {
+  const lang = opts.lang ?? "en";
   const today = opts.today ?? todayISO();
   const inWindow = (piece: Piece) => {
     if (!opts.from && !opts.to) return true;
@@ -249,7 +251,7 @@ export function measure(pieces: Piece[], ads: Ad[] = [], opts: { from?: string |
 
   const held = sales.map((piece) => daysHeld(piece.receivedOn, piece.soldOn, today)).filter((d): d is number => d != null);
   const sellBuckets = SELL_DAYS.map((bucket, i) => ({
-    label: bucket.label,
+    label: tx(lang, bucket.key),
     units: held.filter((d) => d <= bucket.max && (i === 0 || d > SELL_DAYS[i - 1].max)).length,
   }));
 
@@ -302,13 +304,13 @@ export function measure(pieces: Piece[], ads: Ad[] = [], opts: { from?: string |
     undatedSales: sales.filter((piece) => !piece.soldOn).length,
     firstSale: datedSold[0] ?? null,
     lastSale: datedSold[datedSold.length - 1] ?? null,
-    byCategory: groupBy([...sales, ...stock], (piece) => piece.category, "Unsorted", today),
-    byProduct: groupBy([...sales, ...stock], (piece) => piece.name, "Untitled", today),
-    byBrand: groupBy([...sales, ...stock], (piece) => piece.brand, "No brand", today),
-    bySize: groupBy([...sales, ...stock], sizeName, "No size", today),
-    bySource: groupBy([...sales, ...stock], (piece) => piece.source, "Not recorded", today),
-    byChannel: groupBy(sales, (piece) => piece.channel, "Not recorded", today),
-    byClient: groupBy(sales, (piece) => piece.clientName, "Not recorded", today),
+    byCategory: groupBy([...sales, ...stock], (piece) => piece.category, tx(lang, "common.unsorted"), today),
+    byProduct: groupBy([...sales, ...stock], (piece) => piece.name, tx(lang, "common.untitled"), today),
+    byBrand: groupBy([...sales, ...stock], (piece) => piece.brand, tx(lang, "stats.noBrand"), today),
+    bySize: groupBy([...sales, ...stock], sizeName, tx(lang, "stats.noSize"), today),
+    bySource: groupBy([...sales, ...stock], (piece) => piece.source, tx(lang, "stats.notRecorded"), today),
+    byChannel: groupBy(sales, (piece) => piece.channel, tx(lang, "stats.notRecorded"), today),
+    byClient: groupBy(sales, (piece) => piece.clientName, tx(lang, "stats.notRecorded"), today),
     sales,
     stock,
   };
@@ -336,18 +338,19 @@ function step(date: Date, grain: Grain) {
   return next;
 }
 
-function labels(start: Date, grain: Grain) {
+function labels(start: Date, grain: Grain, lang: Lang = "en") {
+  const locale = lang === "es" ? "es" : "en-US";
   if (grain === "year") return { label: String(start.getFullYear()), short: String(start.getFullYear()) };
   if (grain === "month") {
-    const mon = start.toLocaleDateString("en-US", { month: "short" });
+    const mon = start.toLocaleDateString(locale, { month: "short" });
     return { label: `${mon} ${start.getFullYear()}`, short: start.getMonth() === 0 ? `${mon} ’${String(start.getFullYear()).slice(2)}` : mon };
   }
-  const label = start.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  return { label: `Week of ${label}`, short: label };
+  const label = start.toLocaleDateString(locale, { month: "short", day: "numeric" });
+  return { label: tx(lang, "stats.weekOf", { label }), short: label };
 }
 
 /** Continuous periods (empty ones included, so gaps read as gaps) from the first dated sale to today. */
-export function series(sales: Piece[], grain: Grain, opts: { today?: string; limit?: number; from?: string | null } = {}): Period[] {
+export function series(sales: Piece[], grain: Grain, opts: { today?: string; limit?: number; from?: string | null; lang?: Lang } = {}): Period[] {
   const dated = sales.filter((piece) => piece.soldOn);
   if (!dated.length) return [];
   const today = parse(opts.today ?? todayISO());
@@ -358,7 +361,7 @@ export function series(sales: Piece[], grain: Grain, opts: { today?: string; lim
   let guard = 0;
   while (cursor.getTime() <= end.getTime() && guard < 600) {
     const { key } = keyOf(cursor, grain);
-    map.set(key, { key, ...labels(cursor, grain), revenue: 0, profit: 0, units: 0, margin: null });
+    map.set(key, { key, ...labels(cursor, grain, opts.lang ?? "en"), revenue: 0, profit: 0, units: 0, margin: null });
     cursor = step(cursor, grain);
     guard += 1;
   }
@@ -409,8 +412,8 @@ export function niceStep(raw: number) {
 }
 
 /** Same window, one step back: this month vs last month, this week vs last week. */
-export function compare(sales: Piece[], grain: "week" | "month", today = todayISO()) {
-  const rows = series(sales, grain, { today, from: null });
+export function compare(sales: Piece[], grain: "week" | "month", today: string | undefined = undefined, lang: Lang = "en") {
+  const rows = series(sales, grain, { today: today ?? todayISO(), from: null, lang });
   const now = rows.at(-1) ?? null;
   const before = rows.at(-2) ?? null;
   return { now, before };
