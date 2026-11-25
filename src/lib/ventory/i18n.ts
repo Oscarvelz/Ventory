@@ -618,6 +618,13 @@ export const STR = {
   "tray.alreadySold": { en: "Already sold", es: "Ya vendidos" },
   "tray.haveOrSoldNote": { en: "On hand lands on the floor. Already sold lands in the archive and counts in your numbers. A line with a sold date (SoldJun3) always counts as sold — a bare \"- Sold\" with no date follows this answer.", es: "En inventario cae en el piso. Ya vendidos cae en el archivo y cuenta en tus números. Una línea con fecha de venta (SoldJun3) siempre cuenta como vendida; un «- Sold» solo, sin fecha, sigue esta respuesta." },
   "tray.reviewBatch": { en: "Review the batch", es: "Revisar el lote" },
+  "tray.readerQ": { en: "How should this be read?", es: "¿Cómo se lee esto?" },
+  "tray.modeLines": { en: "Ledger lines", es: "Líneas de libreta" },
+  "tray.modeLoose": { en: "Loose text", es: "Texto suelto" },
+  "tray.readerNote": {
+    en: "Loose text reads a supplier's message, a sale note or an ad pasted as written — in English, Spanish or mixed. What the text does not say stays blank.",
+    es: "El texto suelto lee el mensaje de un proveedor, la nota de una venta o un anuncio pegados tal cual, en inglés, español o mezclados. Lo que el texto no dice queda en blanco.",
+  },
   "tray.importCsv": { en: "Import as spreadsheet rows", es: "Importar como líneas de hoja de cálculo" },
   "tray.importFailed": { en: "The import didn't go through — nothing was added. Try again.", es: "La importación no pasó: no se agregó nada. Inténtalo de nuevo." },
   "tray.theCount": { en: "The count", es: "La cuenta" },

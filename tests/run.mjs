@@ -9,11 +9,12 @@ import assert from "node:assert";
 
 const out = mkdtempSync(path.join(tmpdir(), "ventory-test-"));
 execSync(
-  `npx tsc src/lib/ventory/model.ts src/lib/ventory/paste.ts src/lib/ventory/tray.ts --outDir ${out} --module commonjs --target es2022 --moduleResolution node --skipLibCheck`,
+  `npx tsc src/lib/ventory/model.ts src/lib/ventory/paste.ts src/lib/ventory/tray.ts src/lib/ventory/loose.ts src/lib/ventory/loose-lexicon.ts --outDir ${out} --module commonjs --target es2022 --moduleResolution node --skipLibCheck`,
   { stdio: "pipe" },
 );
 const require = createRequire(import.meta.url);
 const { parseDetailedNotes } = require(path.join(out, "paste.js"));
+const { parseLooseText, looksLoose } = require(path.join(out, "loose.js"));
 const tray = require(path.join(out, "tray.js"));
 const model = require(path.join(out, "model.js"));
 
@@ -479,6 +480,181 @@ test("P-16: an undated re-paste is asked about by fingerprint — never silently
   const merged = tray.applyTray(batch, decisions, [floorPiece]);
   assert.equal(merged.add.length, 0);
   assert.equal(merged.update.length, 1);
+});
+
+// ------------------------------------------------------------------
+// The loose-text reader (1.12.0): Vela's pattern carried to merchandise.
+// Every text here is invented, like the rest of the suite.
+const looseRows = (text, ctx = {}) => parseLooseText(text, today, ctx).rows;
+
+test("L-1: a supplier message in Spanish settles as stock with qty, per-unit cost, size and arrival", () => {
+  const [row] = looseRows("Hola amigo, buenas tardes. Ya me llegaron las botas Justin que pedí, son 3 pares talla 44, me costaron $38 cada uno. Llegaron ayer, se ven muy bien, el cuero es original.");
+  assert.equal(row.kind, "stock");
+  assert.equal(row.input.name, "botas Justin");
+  assert.equal(row.input.brand, "Justin");
+  assert.equal(row.input.qty, 3);
+  assert.equal(row.input.costCents, 3800);
+  assert.equal(row.input.sizeLabel, "44");
+  assert.equal(row.input.receivedOn, "2026-11-06");
+});
+
+test("L-2: a two-sentence English purchase is ONE entry, named by its branded mention", () => {
+  const rows = looseRows("Hi friend, the watches arrived yesterday. I bought 4 Casio watches at $22 each from Temu, they look great.");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].input.name, "Casio watches");
+  assert.equal(rows[0].input.qty, 4);
+  assert.equal(rows[0].input.costCents, 2200);
+  assert.equal(rows[0].input.source, "Temu");
+  assert.equal(rows[0].input.receivedOn, "2026-11-06");
+});
+
+test("L-3: a sale note reads both sides of the deal — price, earlier cost, client, sale date", () => {
+  const [row] = looseRows("Vendí las botas Justin a Juan Pérez por $55 el martes pasado. Me las había comprado en Temu a $38.");
+  assert.equal(row.kind, "sale");
+  assert.equal(row.input.saleCents, 5500);
+  assert.equal(row.input.costCents, 3800);
+  assert.equal(row.input.clientName, "Juan Pérez");
+  assert.equal(row.input.source, "Temu");
+  assert.equal(row.input.soldOn, "2026-11-03");
+});
+
+test("L-4: an English sale note carries channel and a written date", () => {
+  const [row] = looseRows("Sold the black leather boots to Maria Lopez for $60 on Nov 20, through Facebook Marketplace.");
+  assert.equal(row.kind, "sale");
+  assert.equal(row.input.saleCents, 6000);
+  assert.equal(row.input.clientName, "Maria Lopez");
+  assert.equal(row.input.channel, "Facebook Marketplace");
+  assert.equal(row.input.soldOn, "2026-11-20");
+});
+
+test("L-5: an ad's text is stock with an ask; its name keeps the text's own words", () => {
+  const [row] = looseRows("Botas vaqueras de cuero, talla 44 (US 10), nuevas. Precio $65, se entrega en persona.");
+  assert.equal(row.kind, "stock");
+  assert.equal(row.input.name, "Botas vaqueras de cuero");
+  assert.equal(row.input.askCents, 6500);
+  assert.equal(row.input.sizeLabel, "44");
+  assert.equal(row.input.usSize, "10");
+  assert.equal(row.input.saleCents, null);
+});
+
+test("L-6: 'todavía no se ha vendido' is not a sale — the negation kills the verb, the ask survives", () => {
+  const [row] = looseRows("Todavía no se ha vendido el reloj Casio, lo tengo en $45 por si alguien pregunta.");
+  assert.equal(row.kind, "stock");
+  assert.equal(row.input.saleCents, null);
+  assert.equal(row.input.askCents, 4500);
+  assert.ok(row.input.notes.includes("Todavía no se ha vendido"));
+});
+
+test("L-7: an apartado names its person for the tray's names question, never as client", () => {
+  const [row] = looseRows("El sombrero quedó apartado para Pedro, me lo paga el viernes.");
+  assert.equal(row.kind, "stock");
+  assert.equal(row.person, "Pedro");
+  assert.equal(row.input.clientName, "");
+  assert.equal(row.input.soldOn, null);
+  assert.equal(row.input.receivedOn, null);
+  assert.ok(row.input.notes.includes("Apartado"));
+});
+
+test("L-8: two products in one message are two entries with their own money", () => {
+  const rows = looseRows("Compré 2 relojes Casio a $20 cada uno y también vendí una chaqueta por $35 a Luis.");
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].input.costCents, 2000);
+  assert.equal(rows[0].input.qty, 2);
+  assert.equal(rows[1].kind, "sale");
+  assert.equal(rows[1].input.saleCents, 3500);
+  assert.equal(rows[1].input.clientName, "Luis");
+});
+
+test("L-9: a lot total that divides exactly settles per unit, with the total kept in the note", () => {
+  const [row] = looseRows("Me traje 3 pares de botas por $90 de la paca, están en buen estado.");
+  assert.equal(row.input.qty, 3);
+  assert.equal(row.input.costCents, 3000);
+  assert.equal(row.input.source, "La paca");
+  assert.ok(row.input.notes.includes("Total $90.00"));
+});
+
+test("L-10: a lot total that does not divide is flagged, never rounded into a cost", () => {
+  const [row] = looseRows("Compré 3 relojes por $100, dos negros y uno blanco.");
+  assert.equal(row.input.costCents, 0);
+  assert.equal(row.input.problem, "unsure");
+  assert.ok(row.issues.includes("true-cost"));
+  assert.ok(row.input.notes.includes("Total written: $100.00 for 3"));
+});
+
+test("L-11: kept and returned ride their own verbs in one message", () => {
+  const rows = looseRows("El reloj Seiko me lo quedé para mí. Y las botas marrones las devolvieron ayer, quedaron en la casa.");
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].kind, "kept");
+  assert.equal(rows[1].kind, "returned");
+  assert.equal(rows[1].input.receivedOn, "2026-11-06");
+});
+
+test("L-12: a gift to family files as gift; 'mi hermana' is a relation, not a client name", () => {
+  const [row] = looseRows("La cartera Coach se la regalé a mi hermana para su cumpleaños.");
+  assert.equal(row.kind, "gift");
+  assert.equal(row.input.clientName, "");
+  assert.equal(row.input.status, "archived");
+});
+
+test("L-13: a failed sale keeps the ask he was asking, as ask — never as cost", () => {
+  const [row] = looseRows("El cliente no quiso las botas al final, pedía $50 por ellas.");
+  assert.equal(row.kind, "failed-sale");
+  assert.equal(row.input.askCents, 5000);
+  assert.equal(row.input.costCents, 0);
+  assert.equal(row.input.saleCents, null);
+});
+
+test("L-14: an order in transit is incoming stock with its per-unit cost", () => {
+  const [row] = looseRows("Pedí 5 sombreros en AliExpress, vienen en camino, costaron $12 cada uno.");
+  assert.equal(row.kind, "stock");
+  assert.equal(row.input.status, "incoming");
+  assert.equal(row.input.qty, 5);
+  assert.equal(row.input.costCents, 1200);
+  assert.equal(row.input.source, "AliExpress");
+});
+
+test("L-15: one typo still names the product and the sale ('relos', 'vendio')", () => {
+  const [row] = looseRows("Se vendio el relos por $40 ayer.");
+  assert.equal(row.kind, "sale");
+  assert.equal(row.input.category, "Watch");
+  assert.equal(row.input.saleCents, 4000);
+  assert.equal(row.input.soldOn, "2026-11-06");
+});
+
+test("L-16: pure greeting is a loose line the tray still shows — never a phantom piece", () => {
+  const { rows, loose } = parseLooseText("Hola amigo, buenas tardes, bendiciones para tu familia.", today, {});
+  assert.equal(rows.length, 0);
+  assert.equal(loose.length, 1);
+});
+
+test("L-17: a Spanish numeric date reads day-first; an impossible date is flagged, not filed", () => {
+  const [row] = looseRows("Compré las botas el 20/11, me costaron $40.");
+  assert.equal(row.input.receivedOn, "2026-11-20");
+  const [bad] = looseRows("Vendí el reloj el 30 de febrero por $50.");
+  assert.equal(bad.input.soldOn, null);
+  assert.ok(bad.issues.includes("bad-date"));
+  assert.ok(bad.input.notes.includes("30 de febrero"));
+});
+
+test("L-18: delivery charged on a sale is delivery money, never price or cost", () => {
+  const [row] = looseRows("Vendí las botas por $50 y cobré $8 de envío, se fue el lunes.");
+  assert.equal(row.input.saleCents, 5000);
+  assert.equal(row.input.deliveryCents, 800);
+  assert.equal(row.input.costCents, 0);
+});
+
+test("L-19: a heading line gives the batch its source; the entries under it inherit it", () => {
+  const { rows } = parseLooseText("Pedido de Temu:\nLlegaron 2 pares de botas Durango talla 43, costaron $35 cada uno. También llegó un reloj Invicta, ese costó $48. Todo se ve bien.", today, {});
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].input.source, "Temu");
+  assert.equal(rows[1].input.source, "Temu");
+  assert.equal(rows[0].input.costCents, 3500);
+  assert.equal(rows[1].input.costCents, 4800);
+});
+
+test("L-20: the tray's reader detection tells prose from ledger lines", () => {
+  assert.equal(looksLoose("Hola amigo, ya me llegaron las botas, costaron $38 cada uno."), true);
+  assert.equal(looksLoose("# Test Boots\n_ 44 = 9.5 ($20) *Home* for $40 — AddedAug28"), false);
 });
 
 console.log(`\n${passed} tests passed`);

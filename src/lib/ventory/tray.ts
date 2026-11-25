@@ -377,10 +377,13 @@ export function buildTray(parsed: { rows: DetailedRow[]; loose: LooseLine[] }, e
       sales: sales.length,
       salesDated: sales.filter((trayRow) => trayRow.row.soldDated).length,
       salesNoPrice: sales.filter((trayRow) => trayRow.input.saleCents == null).length,
-      revenue: sales.reduce((sum, trayRow) => sum + (trayRow.input.saleCents ?? 0), 0),
-      stockCost: rows.filter((trayRow) => trayRow.row.kind === "stock" || trayRow.row.kind === "used").reduce((sum, trayRow) => sum + trayRow.input.costCents, 0),
-      rebates: rows.reduce((sum, trayRow) => sum + trayRow.input.buyRebateCents, 0),
-      delivery: rows.reduce((sum, trayRow) => sum + trayRow.input.deliveryCents, 0),
+      // Money on a row is per unit; the model's own arithmetic multiplies
+      // by qty (profitOf). Ledger rows always carry qty 1 — the loose
+      // reader's rows are the ones that can carry more.
+      revenue: sales.reduce((sum, trayRow) => sum + (trayRow.input.saleCents ?? 0) * Math.max(1, trayRow.input.qty || 1), 0),
+      stockCost: rows.filter((trayRow) => trayRow.row.kind === "stock" || trayRow.row.kind === "used").reduce((sum, trayRow) => sum + trayRow.input.costCents * Math.max(1, trayRow.input.qty || 1), 0),
+      rebates: rows.reduce((sum, trayRow) => sum + trayRow.input.buyRebateCents * Math.max(1, trayRow.input.qty || 1), 0),
+      delivery: rows.reduce((sum, trayRow) => sum + trayRow.input.deliveryCents * Math.max(1, trayRow.input.qty || 1), 0),
     },
   };
 }

@@ -66,7 +66,7 @@ export function parseAddedDate(token: string, today = new Date()) {
   return iso(year, month, day);
 }
 
-function placeOf(line: string): "" | "home" | "car" {
+export function placeOf(line: string): "" | "home" | "car" {
   if (/🏡|🏠|🛖|🪹|\b(?:home|here)\b/i.test(line)) return "home";
   // 1.0.16: vehicles are MARKS, not a place — in Oscar's notes they ride on the same line as
   // "*Home*" dozens of times, so they cannot be where the piece is. Only the written word counts.
@@ -80,7 +80,7 @@ const PLACE_MARKS = new Set(["🏡", "🏠", "🛖", "🪹"]);
  * The marks on a line, kept verbatim (🥬💚, 🚚✨, 🛻🛻…), minus the ones that already mean
  * something structural: the home emojis (place) and 💙 (the Coming signal). Never interpreted.
  */
-function marksOf(line: string) {
+export function marksOf(line: string) {
   const found: string[] = [];
   let cluster = "";
   const flush = () => {
@@ -238,7 +238,7 @@ const centsOf = (raw: string) => dollarsToCents(raw.replace(/\s+/g, ""));
  * an "off" bigger than the cost, arithmetic that does not square, a credit with no amount.
  * Returns the line with every rebate span removed.
  */
-function takeRebate(line: string) {
+export function takeRebate(line: string) {
   const issues: RowIssue[] = [];
   const notes: string[] = [];
   let next = line;
@@ -350,7 +350,7 @@ function takeRebate(line: string) {
   return { line: next, rebate, grossOverride, netBasisRebate, pendingPercent, issues, notes };
 }
 
-function takeCost(line: string) {
+export function takeCost(line: string) {
   const notes: string[] = [];
   let next = line.replace(/\(\s*\$\s*[0-9.]+\s*-\s*\$\s*[0-9.]+[^)]*\)/gi, " ");
   const broken = next.match(/\(\s*\$+\s*([0-9]+)\s*\)\s*\.\s*([0-9]+)\s*\)?/);
@@ -390,7 +390,7 @@ function takeCost(line: string) {
  * taken OUT of the line into `delivery`, never added into the price, and the original ask survives
  * a "for $40 for $50 (delivery $10)" line because 50 − 40 is exactly the delivery.
  */
-function takeSale(line: string) {
+export function takeSale(line: string) {
   const notes: string[] = [];
   let next = line;
   let delivery = 0;
@@ -479,7 +479,7 @@ function takeSale(line: string) {
   return { price, askFromPrice, delivery, arrowSold, notes, line: next };
 }
 
-function takeSize(line: string) {
+export function takeSize(line: string) {
   const notes: string[] = [];
   let clean = line.replace(/[“”"]/g, " ").replace(/\s+/g, " ").trim();
   let bare = false;
@@ -641,7 +641,7 @@ function datesOf(line: string, today: Date, soldBatch: boolean) {
   };
 }
 
-function personName(raw: string) {
+export function personName(raw: string) {
   const parts = raw.trim().split(/\s+/).slice(0, 2).filter(Boolean);
   if (!parts.length || !/^[\p{Lu}]/u.test(parts[0])) return "";
   if (NOT_A_PERSON.has(parts[0].toLowerCase())) return "";

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { BadgePercent, CalendarDays, Check, CircleAlert, CircleHelp, CircleUserRound, Layers, ListChecks, MapPin, NotebookPen, PackageSearch, Ruler, Scale, Tag, Truck, Undo2 } from "lucide-react";
 import { dollarsToCents, emptyInput, money, type Piece, type PieceInput } from "@/lib/ventory/model";
 import { parseDetailedNotes } from "@/lib/ventory/paste";
+import { parseLooseText, looksLoose } from "@/lib/ventory/loose";
 import { applyTray, buildTray, defaultDecisions, defaultRules, styleKey, type BatchRules, type TrayDecisions } from "@/lib/ventory/tray";
 import { tone as litTone, toneInk } from "@/lib/ventory/tones";
 import { tx, type Lang } from "@/lib/ventory/i18n";
@@ -76,6 +77,12 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChang
 }) {
   const [text, setText] = useState("");
   const [soldBatch, setSoldBatch] = useState(false);
+  // Which reader reads the paste: null = the text decides (ledger lines vs
+  // loose prose), a value = Oscar pinned it with the switch below.
+  const [reader, setReader] = useState<"lines" | "loose" | null>(null);
+  const readerMode: "lines" | "loose" = reader ?? (text.trim() && looksLoose(text) ? "loose" : "lines");
+  const parsePaste = (value: string, sold: boolean, mode: "lines" | "loose") =>
+    mode === "loose" ? parseLooseText(value, new Date(), { soldBatch: sold, lang }) : parseDetailedNotes(value, new Date(), sold);
   const [parsed, setParsed] = useState<ReturnType<typeof parseDetailedNotes> | null>(null);
   const [bareSize, setBareSize] = useState<"CN" | "EU">("CN");
   const [year, setYear] = useState("");
@@ -109,10 +116,21 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChang
   const preview = useMemo(() => (batch && decisions ? applyTray(batch, decisions, pieces) : null), [batch, decisions, pieces]);
 
   const review = () => {
-    const next = parseDetailedNotes(text, new Date(), soldBatch);
+    const next = parsePaste(text, soldBatch, readerMode);
     setParsed(next);
     setAppliedResult(null); setApplyError(false);
     setDecisions(defaultDecisions(buildTray(next, pieces, rules, lang)));
+  };
+
+  // Flipping the reader after a review re-reads the paste with the other
+  // reader, the same way flipping the batch answer does.
+  const switchReader = (mode: "lines" | "loose") => {
+    setReader(mode);
+    if (!parsed || !text.trim()) return;
+    const reparsed = parsePaste(text, soldBatch, mode);
+    setParsed(reparsed);
+    setAppliedResult(null); setApplyError(false);
+    setDecisions(defaultDecisions(buildTray(reparsed, pieces, rules, lang)));
   };
 
   // The batch's own answer — products on hand, or a batch of pieces already sold — is read
@@ -122,7 +140,7 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChang
   const reclassify = (next: boolean) => {
     setSoldBatch(next);
     if (!parsed || !text.trim()) return;
-    const reparsed = parseDetailedNotes(text, new Date(), next);
+    const reparsed = parsePaste(text, next, readerMode);
     setParsed(reparsed);
     setAppliedResult(null); setApplyError(false);
     setDecisions(defaultDecisions(buildTray(reparsed, pieces, rules, lang)));
@@ -199,6 +217,17 @@ export function TrayImport({ pieces, onApply, onImportCsv, onClose, onDirtyChang
         className="mt-3 h-40 w-full rounded-2xl border border-line bg-canvas p-3 text-sm outline-none focus:border-accent"
         placeholder={tx(lang, "tray.placeholder")}
       />
+      {/* Which reader (1.12.0): the paste decides by its shape — ledger lines
+          or loose prose — and the switch pins Oscar's own call. */}
+      <div className="mt-4 rounded-2xl border border-line bg-panel p-4">
+        <p className="text-sm font-medium">{tx(lang, "tray.readerQ")}</p>
+        <div className="mt-2 flex gap-2">
+          {([["lines", tx(lang, "tray.modeLines")], ["loose", tx(lang, "tray.modeLoose")]] as const).map(([value, label]) => (
+            <button key={label} type="button" aria-pressed={readerMode === value} className={chip(readerMode === value)} onClick={() => switchReader(value)}>{label}</button>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-muted">{tx(lang, "tray.readerNote")}</p>
+      </div>
       {/* The entrada/salida question, asked up front (1.2.6): products he has, or products he
           already sold. The same answer lives in the review's rules card, where flipping it
           re-reads the note. */}
