@@ -3,7 +3,8 @@ import { CalendarRange, Camera, Check, ChevronDown, Copy, ClipboardList, Hourgla
 import type { Advice, AdviceCard } from "@/lib/ventory/advisor";
 import { missingLabel, missingOf } from "@/lib/ventory/advisor";
 import { tx, type Lang } from "@/lib/ventory/i18n";
-import { daysHeld, money, todayISO, type Piece } from "@/lib/ventory/model";
+import { daysHeld, money, todayISO, type Ad, type Piece } from "@/lib/ventory/model";
+import { askInventory, type AskAnswer } from "@/lib/ventory/ask";
 import { tone as litTone, toneInk } from "@/lib/ventory/tones";
 import { moveList, priceList, restockList } from "@/lib/ventory/insights";
 import { ageTone, cash, halfSize, measure, pct, TONES } from "@/lib/ventory/metrics";
@@ -125,6 +126,7 @@ function needsLine(piece: Piece, lang: Lang = "en") {
 export function AdvisorView({
   advice,
   pieces,
+  ads = [],
   lang = "en",
   onOpen,
   onPhoto,
@@ -135,6 +137,7 @@ export function AdvisorView({
 }: {
   advice: Advice;
   pieces: Piece[];
+  ads?: Ad[];
   lang?: Lang;
   onOpen: (piece: Piece, focus?: AdviceFocus) => void;
   onPhoto: (piece: Piece, file: File) => void;
@@ -144,6 +147,8 @@ export function AdvisorView({
   onFlag: (piece: Piece) => void;
 }) {
   const [later, setLater] = useState<string[]>([]);
+  const [askText, setAskText] = useState("");
+  const [answer, setAnswer] = useState<AskAnswer | null>(null);
   const [front, setFront] = useState<string | null>(null);
   const [countOpen, setCountOpen] = useState(false);
   const [more, setMore] = useState<string[]>([]);
@@ -422,6 +427,34 @@ export function AdvisorView({
           <span className="row-in inline-flex items-center gap-2 rounded-full bg-panel-2 px-3 py-1.5 whitespace-nowrap tabular-nums" style={{ animationDelay: "90ms" }}><span className="size-2 shrink-0 rounded-full" style={{ background: litTone("#5d86ad") }} aria-hidden />{tx(lang, "adv.comingChip")} {cash(coming)}</span>
         </div>
         {advice.oldestLabel ? <p className="row-in mt-2.5 flex items-start gap-2 text-sm text-pretty text-muted" style={{ animationDelay: "140ms" }}><span className="mt-1.5 size-2 shrink-0 rounded-full" style={{ background: litTone(AMBER) }} aria-hidden /><span>{tx(lang, "adv.oldestOnHand")} <span className="text-ink"><NoSplit text={advice.oldestLabel} /></span></span></p> : null}
+      </section>
+
+      <section data-shot="ask-door" className="insight advice-in relative overflow-hidden rounded-3xl border border-line bg-panel px-4 pt-4 pb-4" style={{ ["--tone" as string]: litTone(TEAL) }}>
+        <span className="tone-edge" aria-hidden />
+        <CardHead icon={Lightbulb} tone={litTone(TEAL)} title={tx(lang, "door.title")} />
+        <form
+          className="mt-3 flex gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (askText.trim()) setAnswer(askInventory(pieces, ads, askText, { lang }));
+          }}
+        >
+          <input value={askText} onChange={(event) => setAskText(event.target.value)} placeholder={tx(lang, "door.placeholder")} className="min-w-0 flex-1 rounded-xl border border-line bg-panel-2 px-3 py-2.5 text-sm text-ink" />
+          <button type="submit" className="press shrink-0 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white">{tx(lang, "door.ask")}</button>
+        </form>
+        <p className="mt-2 text-xs leading-relaxed text-faint">{tx(lang, "door.hint")}</p>
+        {answer ? (
+          <div className="mt-3 border-t border-line pt-3">
+            <p className="text-sm leading-relaxed text-pretty text-ink">{answer.text}</p>
+            {answer.pieceIds.length ? (
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                {[...new Map(answer.pieceIds.map((id) => [id, pieces.find((piece) => piece.id === id)] as const)).values()].filter((piece): piece is Piece => !!piece).slice(0, 4).map((piece) => (
+                  <button key={piece.id} type="button" className="press rounded-full border border-line bg-panel-2 px-3 py-1.5 text-xs whitespace-nowrap text-ink" onClick={() => onOpen(piece)}>{piece.name}</button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
       {action && actionOpen ? (

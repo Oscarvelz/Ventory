@@ -729,6 +729,10 @@ export const STR = {
   "door.unlockSub": { en: "Use your fingerprint or your screen lock", es: "Usa tu huella o tu bloqueo de pantalla" },
   "door.pressBack": { en: "Press back again to close Ventory", es: "Pulsa atrás de nuevo para cerrar Ventory" },
   "door.savedIn": { en: "Saved in Downloads › Ventory: %s", es: "Guardado en Descargas › Ventory: %s" },
+  "door.title": { en: "Ask the Advisor", es: "Pregúntale al Asesor" },
+  "door.placeholder": { en: "How much did I sell this month?", es: "¿Cuánto vendí este mes?" },
+  "door.ask": { en: "Ask", es: "Preguntar" },
+  "door.hint": { en: "Stock, sales, profit, prices, what is not moving, what to buy again — in English or Spanish. Every figure names its base.", es: "Existencias, ventas, ganancia, precios, lo que no se mueve, qué volver a comprar — en inglés o español. Cada cifra nombra su base." },
   // __MORE__
 } as const;
 

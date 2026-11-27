@@ -9,7 +9,7 @@ import assert from "node:assert";
 
 const out = mkdtempSync(path.join(tmpdir(), "ventory-test-"));
 execSync(
-  `npx tsc src/lib/ventory/model.ts src/lib/ventory/paste.ts src/lib/ventory/tray.ts src/lib/ventory/loose.ts src/lib/ventory/loose-lexicon.ts --outDir ${out} --module commonjs --target es2022 --moduleResolution node --skipLibCheck`,
+  `npx tsc src/lib/ventory/model.ts src/lib/ventory/paste.ts src/lib/ventory/tray.ts src/lib/ventory/loose.ts src/lib/ventory/loose-lexicon.ts src/lib/ventory/ask.ts src/lib/ventory/ask-lexicon.ts --outDir ${out} --module commonjs --target es2022 --moduleResolution node --skipLibCheck`,
   { stdio: "pipe" },
 );
 const require = createRequire(import.meta.url);
@@ -655,6 +655,85 @@ test("L-19: a heading line gives the batch its source; the entries under it inhe
 test("L-20: the tray's reader detection tells prose from ledger lines", () => {
   assert.equal(looksLoose("Hola amigo, ya me llegaron las botas, costaron $38 cada uno."), true);
   assert.equal(looksLoose("# Test Boots\n_ 44 = 9.5 ($20) *Home* for $40 — AddedAug28"), false);
+});
+
+// ---- The Advisor's question door (1.13.0). Every figure below was
+// computed by hand from this invented floor; the sealed exam with the
+// full census lives outside the repo (ventory-accept/ask-exam.mjs).
+const { askInventory } = require(path.join(out, "ask.js"));
+const askPiece = (over) => ({
+  id: `a${Math.random().toString(36).slice(2, 8)}`, sort: 0, name: "", category: "", subcategory: "", brand: "", status: "available",
+  qty: 1, sizeSystem: "CN", sizeLabel: "", usSize: "", fit: "unisex", costCents: 0, askCents: 0, saleCents: null,
+  buyRebateCents: 0, deliveryCents: 0, source: "", channel: "", clientName: "", receivedOn: null, soldOn: null,
+  notes: "", place: "", photo: "ph", problem: "", wasSold: false, ...over,
+});
+const askFloor = [
+  askPiece({ name: "Test Boots", category: "Boot", brand: "Testbrand", status: "sold", sizeLabel: "44", usSize: "10", costCents: 2000, askCents: 4000, saleCents: 3500, source: "Test Source", channel: "Test Channel", clientName: "Test Client", receivedOn: "2026-10-01", soldOn: "2026-10-21" }),
+  askPiece({ name: "Test Boots", category: "Boot", brand: "Testbrand", status: "sold", sizeLabel: "44", usSize: "10", costCents: 2000, askCents: 4000, saleCents: 3800, source: "Test Source", receivedOn: "2026-10-01", soldOn: "2026-11-02" }),
+  askPiece({ name: "Test Boots", category: "Boot", brand: "Testbrand", status: "available", qty: 2, sizeLabel: "43", usSize: "9.5", costCents: 2000, askCents: 4000, source: "Test Source", receivedOn: "2026-11-01" }),
+  askPiece({ name: "Test Watch", category: "Watch", status: "sold", costCents: 0, askCents: 5500, saleCents: 5000, receivedOn: "2026-09-01", soldOn: "2026-11-05" }),
+  askPiece({ name: "Test Watch", category: "Watch", status: "available", costCents: 3000, askCents: 6000, receivedOn: "2026-08-01" }),
+];
+const askAds = [{ id: "ad1", product: "Test Boots", spentCents: 300, startedOn: "2026-10-15", endedOn: null, worked: "running" }];
+const ask = (question, lang = "en") => askInventory(askFloor, askAds, question, { lang, today });
+
+test("A-1: sales answer from the single reading, revenue by hand", () => {
+  const answer = ask("how much did I sell");
+  assert.equal(answer.family, "ventas");
+  assert.ok(answer.text.includes("$123.00"));
+});
+
+test("A-2: profit names its base; a costless sale stays out of the margin and is named", () => {
+  const answer = ask("what is my profit");
+  assert.equal(answer.family, "ganancia");
+  assert.ok(answer.text.includes("$83.00"));
+  assert.ok(answer.text.includes("45%"));
+  assert.ok(answer.text.includes("Test Watch"));
+});
+
+test("A-3: stock by the floor's own product name", () => {
+  const answer = ask("how many Test Boots do I have");
+  assert.equal(answer.family, "existencias");
+  assert.ok(answer.text.includes("2 on hand"));
+});
+
+test("A-4: what is not moving names the oldest with its days", () => {
+  const answer = ask("what is not moving");
+  assert.equal(answer.family, "nosemueve");
+  assert.ok(answer.text.includes("Test Watch"));
+  assert.ok(answer.text.includes("98"));
+});
+
+test("A-5: speed for one product averages its dated sales only", () => {
+  const answer = ask("how fast do Test Boots sell");
+  assert.equal(answer.family, "rotacion");
+  assert.ok(answer.text.includes("26"));
+});
+
+test("A-6: fees are a frontier, never a number", () => {
+  const answer = ask("what is my final net after fees");
+  assert.equal(answer.family, "frontera");
+});
+
+test("A-7: the same door in Spanish", () => {
+  const answer = ask("¿cuánto gané?", "es");
+  assert.equal(answer.family, "ganancia");
+  assert.ok(answer.text.includes("$83.00"));
+});
+
+test("A-8: a source question lands in the sources family", () => {
+  const answer = ask("¿qué fuente vende mejor?", "es");
+  assert.equal(answer.family, "fuentes");
+  assert.ok(answer.text.includes("Test Source"));
+});
+
+test("A-9: capabilities declare the live families", () => {
+  assert.equal(ask("what can you do").family, "capacidades");
+  assert.equal(ask("¿qué puedes hacer?", "es").family, "capacidades");
+});
+
+test("A-10: a question with no family gets the honest unknown, never a bent answer", () => {
+  assert.equal(ask("what is the weather today").family, "unknown");
 });
 
 console.log(`\n${passed} tests passed`);

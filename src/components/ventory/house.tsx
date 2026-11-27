@@ -1064,6 +1064,7 @@ export function House() {
           lang={lang}
           advice={brief}
           pieces={pieces}
+          ads={ads}
           onOpen={(piece, focus) => { setEditorFocus(focus ?? null); setEditor({ ...piece }); }}
           onPhoto={(piece, file) => {
             void compressPhoto(file).then((photo) => {

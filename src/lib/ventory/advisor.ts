@@ -1,4 +1,5 @@
 import { daysHeld, effectiveCostCents, money, profitOf, type Ad, type Piece } from "./model";
+import { measure } from "./metrics";
 import { tx, type Lang } from "./i18n";
 
 export type AdviceTone = "ready" | "watch" | "loss";
@@ -153,8 +154,14 @@ export function buildAdvice(pieces: Piece[], ads: Ad[], today: Date | Lang = new
   const removed = pieces.filter(isRemoved);
   const kept = pieces.filter(isKept);
   const live = pieces.filter((piece) => !isRemoved(piece) && !isKept(piece));
-  const onHandCents = costOf(onHand);
-  const incomingCents = costOf(incoming);
+  // One reading (1.13.0): the deck's floor totals come from the same
+  // measure() object Statistics reads — never a second arithmetic. The
+  // old adOnSales summed a product's ad once per priced sale record of
+  // that product (double-counting it) and dropped ads whose product had
+  // no priced sale; the reading's adSpend counts every ad once.
+  const reading = measure(pieces, ads, { lang, today: `${todayD.getFullYear()}-${String(todayD.getMonth() + 1).padStart(2, "0")}-${String(todayD.getDate()).padStart(2, "0")}` });
+  const onHandCents = reading.onHandCost;
+  const incomingCents = reading.incomingCost;
   const committed = onHandCents + incomingCents;
   const onHandQty = qty(onHand);
   const readyPieces = onHand.filter(ready);
@@ -181,9 +188,9 @@ export function buildAdvice(pieces: Piece[], ads: Ad[], today: Date | Lang = new
   const average = onHandQty ? Math.round(onHandCents / onHandQty) : null;
 
   const priced = sold.filter((piece) => piece.saleCents != null);
-  const revenue = priced.reduce((sum, piece) => sum + (piece.saleCents ?? 0) * piece.qty, 0);
-  const soldCost = priced.reduce((sum, piece) => sum + effectiveCostCents(piece) * piece.qty, 0);
-  const adOnSales = priced.reduce((sum, piece) => sum + adSpend(piece, ads), 0);
+  const revenue = reading.revenue;
+  const soldCost = reading.costOfSales;
+  const adOnSales = reading.adSpend;
   const net = revenue - soldCost - adOnSales;
 
   const readyCost = costOf(readyPieces);
