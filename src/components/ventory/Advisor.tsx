@@ -127,6 +127,7 @@ export function AdvisorView({
   advice,
   pieces,
   ads = [],
+  onShowStats,
   lang = "en",
   onOpen,
   onPhoto,
@@ -138,6 +139,7 @@ export function AdvisorView({
   advice: Advice;
   pieces: Piece[];
   ads?: Ad[];
+  onShowStats?: (fold: string) => void;
   lang?: Lang;
   onOpen: (piece: Piece, focus?: AdviceFocus) => void;
   onPhoto: (piece: Piece, file: File) => void;
@@ -433,13 +435,33 @@ export function AdvisorView({
         <span className="tone-edge" aria-hidden />
         <CardHead icon={Lightbulb} tone={litTone(TEAL)} title={tx(lang, "door.title")} />
         <form
-          className="mt-3 flex gap-2"
+          className="mt-3 flex items-end gap-2"
           onSubmit={(event) => {
             event.preventDefault();
             if (askText.trim()) setAnswer(askInventory(pieces, ads, askText, { lang }));
           }}
         >
-          <input value={askText} onChange={(event) => setAskText(event.target.value)} placeholder={tx(lang, "door.placeholder")} className="min-w-0 flex-1 rounded-xl border border-line bg-panel-2 px-3 py-2.5 text-sm text-ink" />
+          {/* The box grows with the writing (Oscar's word, 2026-11-27):
+              one line at rest, up to five as the question grows; Enter
+              asks, Shift+Enter makes a new line. */}
+          <textarea
+            value={askText}
+            rows={1}
+            onChange={(event) => {
+              setAskText(event.target.value);
+              const el = event.currentTarget;
+              el.style.height = "auto";
+              el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                if (askText.trim()) setAnswer(askInventory(pieces, ads, askText, { lang }));
+              }
+            }}
+            placeholder={tx(lang, "door.placeholder")}
+            className="min-w-0 flex-1 resize-none overflow-y-auto rounded-xl border border-line bg-panel-2 px-3 py-2.5 text-sm leading-relaxed text-ink"
+          />
           <button type="submit" className="press shrink-0 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white">{tx(lang, "door.ask")}</button>
         </form>
         <p className="mt-2 text-xs leading-relaxed text-faint">{tx(lang, "door.hint")}</p>
@@ -452,6 +474,9 @@ export function AdvisorView({
                   <button key={piece.id} type="button" className="press rounded-full border border-line bg-panel-2 px-3 py-1.5 text-xs whitespace-nowrap text-ink" onClick={() => onOpen(piece)}>{piece.name}</button>
                 ))}
               </div>
+            ) : null}
+            {answer.desk && onShowStats ? (
+              <button type="button" className="press mt-3 text-sm text-accent" onClick={() => onShowStats(answer.desk!)}>{tx(lang, "door.seeStats")} →</button>
             ) : null}
           </div>
         ) : null}

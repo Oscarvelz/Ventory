@@ -721,6 +721,16 @@ export function House() {
     setPinnedStats((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
     setOpenStats((current) => (current.includes(id) ? current : [...current, id]));
   }, []);
+  // The Bridge (1.14.0): an Advisor answer leads to its exact Statistics
+  // fold — desk switched, fold opened (never toggled shut), then scrolled
+  // into view once the desk has rendered.
+  const showStat = useCallback((id: string) => {
+    setDesk("stats");
+    setOpenStats((current) => (current.includes(id) ? current : [...current, id]));
+    window.setTimeout(() => {
+      document.querySelector(`[data-shot="stat-${id}"]`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }, 400);
+  }, []);
 
   const panel = (id: View) =>
     view === id
@@ -1065,6 +1075,7 @@ export function House() {
           advice={brief}
           pieces={pieces}
           ads={ads}
+          onShowStats={showStat}
           onOpen={(piece, focus) => { setEditorFocus(focus ?? null); setEditor({ ...piece }); }}
           onPhoto={(piece, file) => {
             void compressPhoto(file).then((photo) => {

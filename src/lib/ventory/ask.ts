@@ -25,7 +25,18 @@ import { fold } from "./loose";
 import { fullDate, type Lang } from "./i18n";
 import { FAMILY_CUES, FRONTIER_CUES, NEGATED_SALE, WINDOW_CUES, type FamilyId } from "./ask-lexicon";
 
-export type AskAnswer = { family: FamilyId | "unknown"; text: string; pieceIds: string[] };
+export type AskAnswer = { family: FamilyId | "unknown"; text: string; pieceIds: string[]; desk?: string };
+
+/** The Bridge: the Statistics fold where each family's figures live, so
+ *  an answer can lead to its exact place (and the fold's caption is the
+ *  Advisor's own line, from the same reading). Families with no fold of
+ *  their own (the single piece, what's missing, capabilities, the
+ *  frontier) carry no desk: inventing a destination would break it. */
+const DESK_FOR: Partial<Record<FamilyId, string>> = {
+  ventas: "time", tramos: "time", ganancia: "numbers", existencias: "stock", capital: "stock",
+  precios: "product", reposicion: "product", nosemueve: "aging", rotacion: "pace",
+  fuentes: "sources", canales: "channels", tallas: "sizes", anuncios: "ads", marcas: "earns", envios: "numbers",
+};
 
 type Entity = { kind: "product" | "brand" | "category" | "source" | "channel" | "client" | "size"; label: string; folded: string };
 
@@ -130,7 +141,23 @@ function isoOf(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+const MONTH_NAMES: [string, string][] = [
+  ["january", "enero"], ["february", "febrero"], ["march", "marzo"], ["april", "abril"],
+  ["may", "mayo"], ["june", "junio"], ["july", "julio"], ["august", "agosto"],
+  ["september", "septiembre"], ["october", "octubre"], ["november", "noviembre"], ["december", "diciembre"],
+];
+
 function windowOf(folded: string, today: Date): Win {
+  // A named month is a window: the most recent occurrence of that month.
+  // It must arrive with its preposition (en/in/de), at the start, or with
+  // its year — a bare "may" or "march" in English is a verb, not a month.
+  for (let i = 0; i < 12; i++) {
+    const re = new RegExp(`(?:\\b(?:en|in|de)\\s+(?:${MONTH_NAMES[i][0]}|${MONTH_NAMES[i][1]})\\b)|(?:^\\s*(?:${MONTH_NAMES[i][0]}|${MONTH_NAMES[i][1]})\\b)|(?:\\b(?:${MONTH_NAMES[i][0]}|${MONTH_NAMES[i][1]})\\s+(?:de\\s+)?\\d{4}\\b)`);
+    if (!re.test(folded)) continue;
+    let year = today.getFullYear();
+    if (i > today.getMonth()) year -= 1;
+    return { from: isoOf(new Date(year, i, 1)), to: isoOf(new Date(year, i + 1, 0)), kind: `monthname-${year}-${i}` };
+  }
   for (const cue of WINDOW_CUES) {
     if (!cue.re.test(folded)) continue;
     const day = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -161,6 +188,16 @@ const WIN_LABEL: Record<string, { en: string; es: string }> = {
 };
 
 export function askInventory(pieces: Piece[], ads: Ad[], question: string, opts: { lang?: Lang; today?: Date } = {}): AskAnswer {
+  const answer = computeAnswer(pieces, ads, question, opts);
+  if (answer.family !== "unknown" && answer.family !== "frontera") {
+    // A profit question aimed at one group lives in the earners ranking.
+    if (answer.family === "ganancia" && findEntity(fold(question), entitiesOf(pieces)).entity) answer.desk = "earns";
+    else answer.desk = DESK_FOR[answer.family as FamilyId];
+  }
+  return answer;
+}
+
+function computeAnswer(pieces: Piece[], ads: Ad[], question: string, opts: { lang?: Lang; today?: Date } = {}): AskAnswer {
   const lang = opts.lang ?? "en";
   const todayD = opts.today ?? new Date();
   const today = isoOf(todayD);
@@ -171,12 +208,26 @@ export function askInventory(pieces: Piece[], ads: Ad[], question: string, opts:
   const win = windowOf(folded, todayD);
   const m = measure(pieces, ads, { lang, today });
   const mw = win ? measure(pieces, ads, { lang, today, from: win.from, to: win.to }) : m;
-  const winName = WIN_LABEL[win?.kind ?? "all"][lang];
+  const winName = win?.kind.startsWith("monthname")
+    ? (es ? `en ${new Intl.DateTimeFormat("es", { month: "long", year: "numeric" }).format(new Date(`${win.from}T12:00:00`))}` : `in ${new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(new Date(`${win.from}T12:00:00`))}`)
+    : WIN_LABEL[win?.kind ?? "all"][lang];
   const scoped = pieces.filter((piece) => inScope(piece, entity, headWord));
   const scopedStock = scoped.filter(isStock);
   const scopedSales = scoped.filter(isSale);
   const ids = (list: Piece[]) => list.map((piece) => piece.id);
   const units = (list: Piece[]) => list.reduce((sum, piece) => sum + piece.qty, 0);
+  const STATUS_WORD: Record<string, { en: string; es: string }> = {
+    available: { en: "on hand", es: "en inventario" }, incoming: { en: "on the way", es: "en camino" },
+    sold: { en: "sold", es: "vendida" }, archived: { en: "archived", es: "archivada" }, kept: { en: "kept", es: "guardada" },
+  };
+  // A named thing with cards but no sales gets its own declaration —
+  // never the floor's totals bent into its answer.
+  const noSalesText = (name: string) => {
+    const states = [...new Set(scoped.map((piece) => piece.status))].map((s) => STATUS_WORD[s][lang]).join(", ");
+    return es
+      ? `${name} no se ha vendido (${states}): no entra en ninguna cifra de ventas ni de ganancia.`
+      : `${name} has not sold (${states}): it enters no sales or profit figure.`;
+  };
   const cost = (list: Piece[]) => list.reduce((sum, piece) => sum + piece.costCents * piece.qty, 0);
 
   // ---- Frontier first: a fee, a listing date, a market price is a
@@ -192,11 +243,27 @@ export function askInventory(pieces: Piece[], ads: Ad[], question: string, opts:
     return { family: "frontera", text, pieceIds: [] };
   }
 
+  // A brand named after "marca/brand" that no card carries gets a
+  // declaration, not the floor's totals. Verbs and question words after
+  // "marca" ("¿qué marca vende más?") are not names.
+  const brandAsk = question.match(/\b(?:marca|brand)\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)/i);
+  if (brandAsk) {
+    const word = fold(brandAsk[1]);
+    const NOT_A_NAME = new Set(["vende", "venden", "sells", "sell", "es", "is", "se", "mas", "mejor", "best", "tiene", "tienen", "tengo", "of", "the", "que", "cual", "cuales", "hay", "moves", "move", "conviene"]);
+    if (!NOT_A_NAME.has(word) && !findEntity(word, entities).entity) {
+      const name = brandAsk[1][0].toUpperCase() + brandAsk[1].slice(1);
+      return { family: "unknown", text: es
+        ? `No hay nada de ${name} en este inventario: esa marca no está en ninguna tarjeta, así que no tiene ventas ni ganancia que pueda mostrarte. Si llega una pieza de ${name}, la anotas y desde ahí sí respondo por ella.`
+        : `There is nothing from ${name} in this inventory: that brand is on no card, so it has no sales or profit I can show you. If a ${name} piece arrives, note it and from then on I can answer for it.`, pieceIds: [] };
+    }
+  }
+
   let family = (FAMILY_CUES.find((cue) => cue.re.test(folded))?.id ?? "unknown") as FamilyId | "unknown";
-  // Judgment refinements: a negated sale asks what is still on the shelf,
-  // and a sales question aimed at one channel, source or client belongs
-  // to that dimension's family (its row carries the same figures).
-  if (family === "ventas" && NEGATED_SALE.test(folded)) family = "existencias";
+  // Judgment refinements: a negated sale asked as a question ("¿qué no
+  // he vendido?") belongs to what-is-not-moving; stated flatly it asks
+  // what is still on the shelf. A sales question aimed at one channel,
+  // source or client belongs to that dimension's family.
+  if (family === "ventas" && NEGATED_SALE.test(folded)) family = /\b(nunca|never)\b/.test(folded) ? "nosemueve" : "existencias";
   else if (family === "ventas" && /\b(rapid|fast|rapido|cuantos dias|days to sell|cuanto (?:tarda|demora)|velocidad)\b/.test(folded)) family = "rotacion";
   else if (family === "ventas" && entity?.kind === "channel") family = "canales";
   else if (family === "ventas" && entity?.kind === "source") family = "fuentes";
@@ -205,8 +272,8 @@ export function askInventory(pieces: Piece[], ads: Ad[], question: string, opts:
   switch (family) {
     case "capacidades": {
       const text = es
-        ? "Puedo responderte, en inglés o español, sobre tu inventario con las cifras de tus tarjetas: existencias (qué tienes, cuánto hay, qué está en camino o en el carro), ventas por tramo (hoy, esta semana, este mes), ganancia y margen con su base, precios (a cuánto se ha vendido algo y qué pedir), lo que no se mueve y cuánto lleva esperando, cuánto capital tienes comprometido, en cuántos días se vende algo, qué volver a comprar, qué fuente, canal, cliente, marca o talla se mueve más, cuánto gastaste en anuncios, qué le falta a una tarjeta y los hechos de una pieza (su costo, su llegada, su venta). Lo que no puedo hacer también te lo digo con su frontera exacta: tarifas, fecha de publicación, precios de mercado y condición no están en las tarjetas."
-        : "I can answer, in English or Spanish, about your inventory with the figures on your cards: stock (what you have, how much, what is on the way or in the car), sales by stretch (today, this week, this month), profit and margin with their base, prices (what something has sold for and what to ask), what is not moving and how long it has sat, how much capital you have committed, how many days something takes to sell, what to buy again, which source, channel, client, brand or size moves most, how much you spent on ads, what a card is missing, and a piece's own facts (its cost, its arrival, its sale). What I cannot do I also tell you, with its exact frontier: fees, listing dates, market prices and condition are not on the cards.";
+        ? "Puedo responderte, en inglés o español, sobre tu inventario con las cifras de tus tarjetas: existencias (qué tienes, cuánto hay, qué está en camino o en el carro), ventas por tramo (hoy, esta semana, este mes), ganancia y margen con su base, precios (a cuánto se ha vendido algo y qué pedir), lo que no se mueve y cuánto lleva esperando, cuánto capital tienes comprometido, en cuántos días se vende algo, qué volver a comprar, qué fuente, canal, cliente, marca o talla se mueve más, cuánto gastaste en anuncios, cuánto cobraste por envíos, qué le falta a una tarjeta y los hechos de una pieza (su costo, su llegada, su venta). Lo que no puedo hacer también te lo digo con su frontera exacta: tarifas, fecha de publicación, precios de mercado y condición no están en las tarjetas."
+        : "I can answer, in English or Spanish, about your inventory with the figures on your cards: stock (what you have, how much, what is on the way or in the car), sales by stretch (today, this week, this month), profit and margin with their base, prices (what something has sold for and what to ask), what is not moving and how long it has sat, how much capital you have committed, how many days something takes to sell, what to buy again, which source, channel, client, brand or size moves most, how much you spent on ads, how much you collected in delivery charges, what a card is missing, and a piece's own facts (its cost, its arrival, its sale). What I cannot do I also tell you, with its exact frontier: fees, listing dates, market prices and condition are not on the cards.";
       return { family, text, pieceIds: [] };
     }
 
@@ -232,7 +299,19 @@ export function askInventory(pieces: Piece[], ads: Ad[], question: string, opts:
     }
 
     case "ventas": {
+      if (/\b(mejor venta|venta mas grande|best sale|biggest sale|largest sale)\b/.test(folded)) {
+        const priced = m.sales.filter((piece) => piece.saleCents != null);
+        if (priced.length) {
+          const best = priced.reduce((a, b) => ((b.saleCents ?? 0) * b.qty > (a.saleCents ?? 0) * a.qty ? b : a));
+          const amount = money((best.saleCents ?? 0) * best.qty);
+          const text = es
+            ? `Tu mejor venta fue ${best.name}: ${amount}${best.soldOn ? `, el ${fullDate(lang, best.soldOn)}` : " (sin fecha en su tarjeta)"}${best.clientName ? `, a ${best.clientName}` : ""}. Es la venta individual con precio más alta; las ventas sin precio no compiten.`
+            : `Your best sale was ${best.name}: ${amount}${best.soldOn ? `, on ${fullDate(lang, best.soldOn)}` : " (no date on its card)"}${best.clientName ? `, to ${best.clientName}` : ""}. It is the highest single priced sale; unpriced sales do not compete.`;
+          return { family, text, pieceIds: [best.id] };
+        }
+      }
       const row = entity ? groupRow(entity.kind === "brand" ? mw.byBrand : entity.kind === "category" ? mw.byCategory : entity.kind === "source" ? mw.bySource : entity.kind === "channel" ? mw.byChannel : entity.kind === "client" ? mw.byClient : entity.kind === "size" ? mw.bySize : mw.byProduct, entity) : null;
+      if (!row && entity && scoped.length && !scopedSales.length) return { family, text: noSalesText(entity.label), pieceIds: ids(scoped) };
       if (row) {
         const text = es
           ? `${row.label}: ${row.soldUnits} ${row.soldUnits === 1 ? "unidad vendida" : "unidades vendidas"} ${winName}, ${money(row.revenue)} en ventas con precio (${row.pricedUnits} con precio). ${row.avgDays != null ? `Se venden en unos ${row.avgDays} días.` : "Sin fechas no puedo decir en cuántos días se venden."}`
@@ -260,14 +339,52 @@ export function askInventory(pieces: Piece[], ads: Ad[], question: string, opts:
           : `${row.label}: profit of ${money(row.profit)} over ${money(row.revenue)} in priced sales${row.margin != null ? `, a margin of ${pct(row.margin)}` : ", no margin to compute: a card is missing its cost"}. The base is ${row.pricedUnits} priced units.`;
         return { family, text, pieceIds: ids(scopedSales) };
       }
+      if (entity && scoped.length && !scopedSales.length) return { family, text: noSalesText(entity.label), pieceIds: ids(scoped) };
       const text = es
         ? `Ganancia según las tarjetas ${winName}: ${money(mw.profit)}, sobre ${money(mw.revenue)} en ventas con precio. El margen es ${margin}, calculado solo sobre las ${units(known)} unidades vendidas con costo en su tarjeta (${money(knownRevenue)}).${costless.length ? ` ${costless.map((piece) => piece.name).join(", ")} se vendió sin costo en su tarjeta: sus ${money(costlessRevenue)} cuentan como entrada, pero su ganancia real es desconocida y no entra en el margen.` : ""}${mw.units.unpriced ? ` Y ${mw.units.unpriced} unidad sin precio no entra en ninguna de estas cifras.` : ""}`
         : `Profit by the cards ${winName}: ${money(mw.profit)}, over ${money(mw.revenue)} in priced sales. The margin is ${margin}, computed only over the ${units(known)} sold units with a cost on their card (${money(knownRevenue)}).${costless.length ? ` ${costless.map((piece) => piece.name).join(", ")} sold with no cost on its card: its ${money(costlessRevenue)} counts as money in, but its real profit is unknown and stays out of the margin.` : ""}${mw.units.unpriced ? ` And ${mw.units.unpriced} unpriced unit enters none of these figures.` : ""}`;
       return { family, text, pieceIds: ids(mw.sales) };
     }
 
+    case "envios": {
+      const pool = entity ? scopedSales : m.sales;
+      const charged = pool.filter((piece) => piece.deliveryCents > 0);
+      const total = charged.reduce((sum, piece) => sum + piece.deliveryCents * piece.qty, 0);
+      const text = charged.length
+        ? (es ? `Cobraste ${money(total)} por envíos, en ${charged.length} ${charged.length === 1 ? "venta que lo cobró" : "ventas que lo cobraron"}: ${charged.map((piece) => `${piece.name} (${money(piece.deliveryCents * piece.qty)})`).join(", ")}. El envío es dinero cobrado aparte del precio: se suma a lo cobrado, no a la ganancia.`
+               : `You collected ${money(total)} in delivery charges, on ${charged.length} sale${charged.length === 1 ? "" : "s"} that charged it: ${charged.map((piece) => `${piece.name} (${money(piece.deliveryCents * piece.qty)})`).join(", ")}. Delivery is money collected apart from the price: it adds to what was collected, not to profit.`)
+        : (es ? "Ninguna venta trae cobro de envío en su tarjeta: lo cobrado por envíos es $0.00 según las tarjetas." : "No sale carries a delivery charge on its card: delivery collected is $0.00 by the cards.");
+      return { family, text, pieceIds: ids(charged) };
+    }
+
     case "precios": {
       const priceRows = priceList(pieces, lang);
+      // A price question aimed at one thing is answered from that thing's
+      // own evidence first: what it asks today, what buyers have paid,
+      // and the cut its own waiting has earned.
+      if (entity) {
+        const move = moveList(pieces, today, lang).find((g) => fold(g.product) === fold(entity.label) || fold(g.product).split(" ")[0] === (headWord ?? ""));
+        const prowE = priceRows.find((row) => fold(row.product) === fold(entity.label) || fold(row.product).split(" ")[0] === (headWord ?? ""));
+        const growE = groupRow(mw.byProduct, entity) ?? groupRow(mw.byBrand, entity) ?? groupRow(mw.byCategory, entity);
+        const asks = [...new Set(scopedStock.filter((piece) => piece.askCents > 0).map((piece) => piece.askCents))];
+        if (asks.length || prowE || move || (growE && growE.avgSale != null)) {
+          const askPart = asks.length
+            ? (es ? `hoy pides ${asks.map((a) => money(a)).join(", ")} por lo que queda` : `today you ask ${asks.map((a) => money(a)).join(", ")} for what is left`)
+            : (es ? "lo que queda no tiene precio pedido" : "what is left has no asking price");
+          const paidPart = prowE
+            ? (es ? `los compradores pagaron entre ${money(prowE.low)} y ${money(prowE.high)} (mediana ${money(prowE.median)}, ${prowE.sales} ventas con precio)` : `buyers paid between ${money(prowE.low)} and ${money(prowE.high)} (median ${money(prowE.median)}, ${prowE.sales} priced sales)`)
+            : growE && growE.avgSale != null
+              ? (es ? `se ha vendido a ${money(growE.avgSale)} en promedio (${growE.pricedUnits} con precio)` : `it has sold at ${money(growE.avgSale)} on average (${growE.pricedUnits} priced)`)
+              : (es ? "todavía no se ha vendido con precio, así que no hay rango de lo pagado" : "it has not sold at a price yet, so there is no paid range");
+          const movePart = move
+            ? (move.cut != null
+              ? (es ? ` Lleva ${move.oldest} días esperando, pasado su tiempo usual: la rebaja con evidencia es a ${money(move.cut)}, sobre su piso de ${money(move.floor)} (su costo neto).` : ` It has waited ${move.oldest} days, past its usual time: the cut with evidence is to ${money(move.cut)}, above its floor of ${money(move.floor)} (its net cost).`)
+              : (es ? ` Lleva ${move.oldest} días esperando y aún no tiene precio: antes de rebajar hay que pedírselo, y su piso es ${money(move.floor)} (su costo neto).` : ` It has waited ${move.oldest} days and still has no price: before any cut it needs one, and its floor is ${money(move.floor)} (its net cost).`))
+            : "";
+          const text = es ? `${entity.label}: ${askPart}; ${paidPart}.${movePart}` : `${entity.label}: ${askPart}; ${paidPart}.${movePart}`;
+          return { family, text, pieceIds: ids(scoped) };
+        }
+      }
       const prow = entity ? priceRows.find((row) => fold(row.product) === fold(entity.label) || fold(row.product).split(" ")[0] === (headWord ?? "")) : null;
       if (prow) {
         const text = es
@@ -336,6 +453,17 @@ export function askInventory(pieces: Piece[], ads: Ad[], question: string, opts:
     }
 
     case "fuentes": case "canales": case "clientes": case "marcas": case "tallas": {
+      // "Who bought this?" is answered from the piece's own sales, not
+      // from the client ranking.
+      if (family === "clientes" && entity && entity.kind !== "client" && scopedSales.length) {
+        const named = scopedSales.filter((piece) => piece.clientName);
+        if (named.length) {
+          const text = named.map((piece) => es
+            ? `${piece.clientName} compró ${piece.name}${piece.saleCents != null ? ` por ${money(piece.saleCents * piece.qty)}` : " sin precio en su tarjeta"}${piece.soldOn ? ` el ${fullDate(lang, piece.soldOn)}` : ""}`
+            : `${piece.clientName} bought ${piece.name}${piece.saleCents != null ? ` for ${money(piece.saleCents * piece.qty)}` : " with no price on its card"}${piece.soldOn ? ` on ${fullDate(lang, piece.soldOn)}` : ""}`).join(". ") + ".";
+          return { family, text, pieceIds: ids(named) };
+        }
+      }
       const rows = family === "fuentes" ? m.bySource : family === "canales" ? m.byChannel : family === "clientes" ? m.byClient : family === "tallas" ? m.bySize : (entity?.kind === "category" || /\b(categoria|category|categorias)\b/.test(folded) ? m.byCategory : m.byBrand);
       const row = entity ? groupRow(rows, entity) : null;
       const label = family === "fuentes" ? (es ? "fuente" : "source") : family === "canales" ? (es ? "canal" : "channel") : family === "clientes" ? (es ? "cliente" : "client") : family === "tallas" ? (es ? "talla" : "size") : (es ? "marca" : "brand");
@@ -387,6 +515,9 @@ export function askInventory(pieces: Piece[], ads: Ad[], question: string, opts:
       if (!records.length) return { family, text: es ? `No hay ninguna pieza llamada ${entity.label} en tu inventario: no voy a acomodar el nombre a otra.` : `There is no piece called ${entity.label} in your inventory: I will not bend the name to another one.`, pieceIds: [] };
       const wantsDate = /\b(cuando|when)\b/.test(folded);
       const wantsSold = /\b(vendi|sold|venta)\b/.test(folded);
+      // An explicit cost ask ("¿cuánto costó el reloj que vendí?") is a
+      // cost question even though it mentions the sale.
+      const wantsCost = /\b(costo|cuesta|costaron|cost)\b/.test(folded);
       const stockRecords = records.filter((piece) => piece.status === "available" || piece.status === "incoming");
       if (wantsDate && !wantsSold) {
         const pool = /\b(tengo|have|queda|left)\b/.test(folded) && stockRecords.length ? stockRecords : records;
@@ -396,17 +527,25 @@ export function askInventory(pieces: Piece[], ads: Ad[], question: string, opts:
           : (es ? `${entity.label} no tiene fecha de llegada en su tarjeta: sin esa fecha no hay antigüedad honesta.` : `${entity.label} has no arrival date on its card: with no date there is no honest aging.`);
         return { family, text, pieceIds: ids(pool) };
       }
-      if (wantsSold || wantsDate) {
+      if ((wantsSold || wantsDate) && !wantsCost) {
         const sold = records.filter(isSale);
         const text = sold.length
           ? (es ? `${entity.label}: ${sold.map((piece) => `se vendió${piece.soldOn ? ` el ${fullDate(lang, piece.soldOn)}` : " sin fecha"}${piece.saleCents != null ? ` por ${money(piece.saleCents)}` : " sin precio"}${piece.clientName ? ` a ${piece.clientName}` : ""}`).join("; ")}.` : `${entity.label}: ${sold.map((piece) => `sold${piece.soldOn ? ` ${fullDate(lang, piece.soldOn)}` : " with no date"}${piece.saleCents != null ? ` for ${money(piece.saleCents)}` : " with no price"}${piece.clientName ? ` to ${piece.clientName}` : ""}`).join("; ")}.`)
           : (es ? `${entity.label} no se ha vendido: sigue ${stockRecords.length ? "en el inventario" : "fuera del inventario sin venta"}.` : `${entity.label} has not sold: it is ${stockRecords.length ? "still in stock" : "out of stock without a sale"}.`);
         return { family, text, pieceIds: ids(records) };
       }
-      const costs = [...new Set(records.map((piece) => piece.costCents))];
-      const text = es
-        ? `${entity.label}: ${costs.length === 1 ? `costó ${money(costs[0])} por unidad` : `los costos en sus tarjetas son ${costs.map((c) => money(c)).join(", ")}`} (sobre ${records.length} ${records.length === 1 ? "tarjeta" : "tarjetas"} con ese nombre).${records.some((piece) => piece.buyRebateCents > 0) ? " El reembolso de compra baja ese costo en la tarjeta que lo trae." : ""}`
-        : `${entity.label}: ${costs.length === 1 ? `it cost ${money(costs[0])} per unit` : `the costs on its cards are ${costs.map((c) => money(c)).join(", ")}`} (over ${records.length} card${records.length === 1 ? "" : "s"} with that name).${records.some((piece) => piece.buyRebateCents > 0) ? " The buying rebate lowers that cost on the card that carries it." : ""}`;
+      // A cost of 0 on a card is an unknown cost, never "$0.00": costed
+      // cards speak, uncosted ones are declared.
+      const costed = records.filter((piece) => piece.costCents > 0);
+      const costs = [...new Set(costed.map((piece) => piece.costCents))];
+      const uncosted = records.length - costed.length;
+      const text = costs.length
+        ? (es
+          ? `${entity.label}: ${costs.length === 1 ? `costó ${money(costs[0])} por unidad` : `los costos en sus tarjetas son ${costs.map((c) => money(c)).join(", ")}`} (sobre ${records.length} ${records.length === 1 ? "tarjeta" : "tarjetas"} con ese nombre).${uncosted ? ` ${uncosted} ${uncosted === 1 ? "tarjeta no trae" : "tarjetas no traen"} costo: el de esa pieza es desconocido, no cero.` : ""}${records.some((piece) => piece.buyRebateCents > 0) ? " El reembolso de compra baja ese costo en la tarjeta que lo trae." : ""}`
+          : `${entity.label}: ${costs.length === 1 ? `it cost ${money(costs[0])} per unit` : `the costs on its cards are ${costs.map((c) => money(c)).join(", ")}`} (over ${records.length} card${records.length === 1 ? "" : "s"} with that name).${uncosted ? ` ${uncosted} card${uncosted === 1 ? " carries" : "s carry"} no cost: that piece's cost is unknown, not zero.` : ""}${records.some((piece) => piece.buyRebateCents > 0) ? " The buying rebate lowers that cost on the card that carries it." : ""}`)
+        : (es
+          ? `${entity.label}: ninguna de sus tarjetas trae costo, así que no puedo decir cuánto costó: desconocido no es cero.`
+          : `${entity.label}: none of its cards carries a cost, so I cannot say what it cost: unknown is not zero.`);
       return { family, text, pieceIds: ids(records) };
     }
 

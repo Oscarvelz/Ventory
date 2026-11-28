@@ -10,7 +10,7 @@
 
 export type FamilyId =
   | "capacidades" | "frontera" | "pieza" | "faltantes" | "reposicion" | "precios"
-  | "ganancia" | "ventas" | "rotacion" | "nosemueve" | "anuncios" | "fuentes"
+  | "ganancia" | "ventas" | "envios" | "rotacion" | "nosemueve" | "anuncios" | "fuentes"
   | "canales" | "clientes" | "marcas" | "tallas" | "tramos" | "capital" | "existencias";
 
 /** Frontier traps: questions whose honest answer is a boundary, not a number. */
@@ -25,12 +25,13 @@ export const FRONTIER_CUES: { re: RegExp; kind: "fees" | "listing" | "market" | 
 
 export const FAMILY_CUES: { id: FamilyId; re: RegExp }[] = [
   { id: "capacidades", re: /\b(que puedes hacer|que sabes hacer|capacidades|what can you do|can you do|help|ayuda|que preguntas (?:puedo|responde)|funciones)\b/ },
-  { id: "pieza", re: /\b(cuanto costo|cuanto costaron|cuando llego|cuando llego el|cuando vendi|costo (?:el|la|los|las|de)|when did|how much did .* cost|cuando entro)\b/ },
+  { id: "envios", re: /\b(envios?|delivery|deliveries|shipping|flete)\b/ },
+  { id: "pieza", re: /\b(cuanto costo|cuanto costaron|cuanto cuesta|cuestan?|cuando llego|cuando llego el|cuando vendi|costo (?:el|la|los|las|de)|when did|how much did .* cost|cuando entro)\b/ },
   { id: "faltantes", re: /\b(que le falta|que falta|le falta|incomplet|missing|que necesito (?:poner|agregar)|sin (?:foto|precio|talla|fecha|marca))\b/ },
   { id: "reposicion", re: /\b(vuelvo a comprar|volver a comprar|reponer|reposicion|restock|buy again|se (?:esta |esta )?acabando|running low|cuanto me queda de|cuantas me quedan de)\b/ },
   { id: "precios", re: /\b(precio|precios|price|prices|charge|cuanto cobrar|a cuanto|cuanto (?:puedo |debo )?(?:cobrar|pedir)|por debajo del costo|below cost|rebaj|price cut|descuento en (?:el |la )?precio)\b/ },
   { id: "ganancia", re: /\b(gane|ganancia|ganancias|margen|profit|margin|earnings|cuanto (?:me )?(?:quedo|dejo)|how much did i (?:make|earn))\b/ },
-  { id: "ventas", re: /\b(vendi|vendido|ventas|vendidos|sales|sold|sell|cuanto entro|ingresos|revenue|cuanto se vendio)\b/ },
+  { id: "ventas", re: /\b(vendi|vendido|ventas|vendidos|sales|sold|sell|cuanto entro|ingresos|revenue|cuanto se vendio|mejor venta|venta mas grande|best sale|biggest sale|largest sale)\b/ },
   { id: "fuentes", re: /\b(fuentes?|sources?|donde compro|donde comprar|proveedor|supplier|donde conviene comprar)\b/ },
   { id: "canales", re: /\b(canales|canal|channels?|por donde se vende|donde se vende mas)\b/ },
   { id: "clientes", re: /\b(clientes?|clients?|compradores|quien (?:compra|compro|es mi mejor))\b/ },
